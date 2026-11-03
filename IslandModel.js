@@ -27,9 +27,9 @@ var sizes = {
   "stopwatch":     { w: 236, h: 32, r: 16 },
   "activity":      { w: 256, h: 32, r: 16 },
   "calendar":      { w: 300, h: 32, r: 16 },
-  "clock-expanded": { w: 380, h: 132, r: 40 },
+  "clock-expanded": { w: 420, h: 160, r: 40 },
   "activity-expanded": { w: 392, h: 104, r: 38 },
-  "calendar-expanded": { w: 500, h: 262, r: 40 },
+  "calendar-expanded": { w: 560, h: 320, r: 40 },
   "notification-actions": { w: 404, h: 118, r: 38 }
 }
 

@@ -729,14 +729,31 @@ Item {
   property bool calendarAdding: false
   readonly property bool calendarTyping: calendarAdding && view === "calendar-expanded"
 
+  function openFocusd() {
+    hud = null
+    inboxOpen = false
+    outputsOpen = false
+    calendarOpen = false
+    openFocus = "timer"
+    userExpanded = true
+    if (!hovered) {
+      collapseTimer.interval = 10000
+      collapseTimer.restart()
+    }
+  }
+
   function openCalendar() {
+    if (userExpanded && view === "calendar-expanded") {
+      collapse()
+      return
+    }
     hud = null
     inboxOpen = false
     outputsOpen = false
     calendarOpen = true
     userExpanded = true
     // No calendars yet: open straight into the field.
-    calendarAdding = calendarSource.sources.length === 0
+    calendarAdding = calendarSource.sources.length === 0 && calendarSource.googleEvents.length === 0
     if (!hovered) {
       collapseTimer.interval = 10000
       collapseTimer.restart()
@@ -1294,6 +1311,8 @@ Item {
     function activities(): string { return JSON.stringify(activitySource.list()) }
     function refreshCalendar(): string { calendarSource.refresh(); return "ok" }
     function calendar(): string { root.openCalendar(); return "ok" }
+    function focusd(): string { root.openFocusd(); return "ok" }
+    function focus(): string { root.openFocusd(); return "ok" }
     function addCalendar(link: string): string { root.addCalendar(link); return "ok" }
     function removeCalendar(link: string): string { root.removeCalendar(link); return "ok" }
     function addCalendarFromClipboard(): string { root.addCalendarFromClipboard(); return "ok" }

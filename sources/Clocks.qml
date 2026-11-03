@@ -3,9 +3,9 @@ import Quickshell
 import Quickshell.Io
 import "../IslandModel.js" as Model
 
-// Timer and stopwatch live activities. Both are stored as wall-clock
-// timestamps in a small state file, so they keep running across shell
-// restarts and a timer that ran out while the shell was down still rings.
+// Timer and stopwatch live activities.
+// Integrated with Focusd (bibek.focusd) as a first-class Pomodoro engine
+// while maintaining fallback wall-clock timers and stopwatch.
 Item {
   id: clocks
 
@@ -14,16 +14,42 @@ Item {
 
   property double now: Date.now()
 
-  // ---- timer
-  property double timerEnd: 0          // epoch ms while running
-  property double timerLeftPaused: 0   // ms left while paused
-  property double timerTotal: 0        // ms, for the progress ring
-  property bool timerPaused: false
-  property string timerLabel: ""
+  // ---- Focusd Pomodoro Integration
+  FocusdSource {
+    id: focusd
+  }
 
-  readonly property bool timerActive: timerEnd > 0 || timerPaused
-  readonly property double timerLeft: timerPaused ? timerLeftPaused : Math.max(0, timerEnd - now)
-  readonly property real timerProgress: timerTotal > 0 ? Math.max(0, Math.min(1, 1 - timerLeft / timerTotal)) : 0
+  readonly property var focusdSource: focusd
+  readonly property bool isFocusd: focusd.active
+  readonly property string focusSession: focusd.session
+  readonly property string focusSessionLabel: focusd.sessionLabel
+  readonly property string focusNextSessionLabel: focusd.nextSessionLabel
+  readonly property string focusRemainingText: focusd.remainingText
+  readonly property int currentStreak: focusd.currentStreak
+  readonly property string dailyGoal: focusd.dailyGoal
+  readonly property int sessionsToday: focusd.sessionsToday
+  readonly property string focusedToday: focusd.focusedToday
+  readonly property int completedSessions: focusd.completedSessions
+  readonly property int workSessionsBeforeLongBreak: focusd.workSessionsBeforeLongBreak
+  readonly property bool hasSessionData: focusd.hasSessionData
+
+  // ---- Standard Wall-Clock Fallback Timer
+  property double rawTimerEnd: 0          // epoch ms while running
+  property double rawTimerLeftPaused: 0   // ms left while paused
+  property double rawTimerTotal: 0        // ms, for the progress ring
+  property bool rawTimerPaused: false
+  property string rawTimerLabel: ""
+
+  readonly property bool rawTimerActive: rawTimerEnd > 0 || rawTimerPaused
+  readonly property double rawTimerLeft: rawTimerPaused ? rawTimerLeftPaused : Math.max(0, rawTimerEnd - now)
+  readonly property real rawTimerProgress: rawTimerTotal > 0 ? Math.max(0, Math.min(1, 1 - rawTimerLeft / rawTimerTotal)) : 0
+
+  // Unified timer interface consumed by Island.qml & compact/expanded views
+  readonly property bool timerActive: focusd.active || rawTimerActive
+  readonly property bool timerPaused: focusd.active ? focusd.paused : rawTimerPaused
+  readonly property real timerProgress: focusd.active ? focusd.progress : rawTimerProgress
+  readonly property double timerLeft: focusd.active ? (focusd.remainingSeconds * 1000) : rawTimerLeft
+  readonly property string timerLabel: focusd.active ? focusd.sessionLabel : (rawTimerLabel || "Timer")
 
   // ---- stopwatch
   property double stopwatchStart: 0    // epoch ms of the current run
@@ -36,58 +62,92 @@ Item {
   Timer {
     interval: clocks.stopwatchRunning ? 100 : 250
     repeat: true
-    running: (clocks.timerActive && !clocks.timerPaused) || clocks.stopwatchRunning
+    running: (clocks.rawTimerActive && !clocks.rawTimerPaused) || clocks.stopwatchRunning
     onTriggered: {
       clocks.now = Date.now()
-      if (clocks.timerActive && !clocks.timerPaused && clocks.timerEnd <= clocks.now) clocks.timerFinished()
+      if (clocks.rawTimerActive && !clocks.rawTimerPaused && clocks.rawTimerEnd <= clocks.now) clocks.timerFinished()
     }
   }
 
   function startTimer(seconds, label) {
-    var ms = Math.max(1, Number(seconds) || 0) * 1000
+    var sec = Number(seconds) || 1500
+    // If standard pomodoro interval (25m) or requested label is Pomodoro, route to focusd
+    if (sec === 1500 || String(label || "").toLowerCase().indexOf("pomo") !== -1 || String(label || "").toLowerCase().indexOf("focus") !== -1) {
+      focusd.start()
+      return
+    }
+
+    var ms = Math.max(1, sec) * 1000
     now = Date.now()
-    timerTotal = ms
-    timerEnd = now + ms
-    timerPaused = false
-    timerLeftPaused = 0
-    timerLabel = String(label || "")
+    rawTimerTotal = ms
+    rawTimerEnd = now + ms
+    rawTimerPaused = false
+    rawTimerLeftPaused = 0
+    rawTimerLabel = String(label || "")
     save()
   }
 
   function toggleTimer() {
-    if (!timerActive) return
+    if (focusd.active) {
+      focusd.toggle()
+      return
+    }
+    if (!rawTimerActive) return
     now = Date.now()
-    if (timerPaused) {
-      timerEnd = now + timerLeftPaused
-      timerPaused = false
+    if (rawTimerPaused) {
+      rawTimerEnd = now + rawTimerLeftPaused
+      rawTimerPaused = false
     } else {
-      timerLeftPaused = Math.max(0, timerEnd - now)
-      timerEnd = 0
-      timerPaused = true
+      rawTimerLeftPaused = Math.max(0, rawTimerEnd - now)
+      rawTimerEnd = 0
+      rawTimerPaused = true
     }
     save()
   }
 
   function addToTimer(seconds) {
-    if (!timerActive) return
+    if (focusd.active) {
+      focusd.addMinutes(Math.max(1, Math.round(seconds / 60)))
+      return
+    }
+    if (!rawTimerActive) return
     var ms = seconds * 1000
-    if (timerPaused) timerLeftPaused += ms
-    else timerEnd += ms
-    timerTotal += ms
+    if (rawTimerPaused) rawTimerLeftPaused += ms
+    else rawTimerEnd += ms
+    rawTimerTotal += ms
     save()
   }
 
   function cancelTimer() {
-    timerEnd = 0
-    timerPaused = false
-    timerLeftPaused = 0
-    timerTotal = 0
-    timerLabel = ""
+    if (focusd.active) {
+      focusd.reset()
+    }
+    rawTimerEnd = 0
+    rawTimerPaused = false
+    rawTimerLeftPaused = 0
+    rawTimerTotal = 0
+    rawTimerLabel = ""
     save()
   }
 
+  function skipFocusd() {
+    focusd.skip()
+  }
+
+  function startFocusd() {
+    focusd.start()
+  }
+
+  function resetFocusd() {
+    focusd.reset()
+  }
+
+  function addMinutesFocusd(mins) {
+    focusd.addMinutes(mins)
+  }
+
   function timerFinished() {
-    var label = timerLabel
+    var label = rawTimerLabel
     cancelTimer()
     if (!island) return
     island.toast({
@@ -128,8 +188,8 @@ Item {
   function save() {
     if (!restored) return
     stateFile.setText(JSON.stringify({
-      timerEnd: timerEnd, timerLeftPaused: timerLeftPaused, timerTotal: timerTotal,
-      timerPaused: timerPaused, timerLabel: timerLabel,
+      timerEnd: rawTimerEnd, timerLeftPaused: rawTimerLeftPaused, timerTotal: rawTimerTotal,
+      timerPaused: rawTimerPaused, timerLabel: rawTimerLabel,
       stopwatchStart: stopwatchStart, stopwatchBanked: stopwatchBanked, stopwatchRunning: stopwatchRunning
     }) + "\n")
   }
@@ -145,16 +205,15 @@ Item {
       var s = {}
       try { s = JSON.parse(text() || "{}") } catch (e) { s = {} }
       clocks.now = Date.now()
-      clocks.timerEnd = Number(s.timerEnd) || 0
-      clocks.timerLeftPaused = Number(s.timerLeftPaused) || 0
-      clocks.timerTotal = Number(s.timerTotal) || 0
-      clocks.timerPaused = s.timerPaused === true
-      clocks.timerLabel = String(s.timerLabel || "")
+      clocks.rawTimerEnd = Number(s.timerEnd) || 0
+      clocks.rawTimerLeftPaused = Number(s.timerLeftPaused) || 0
+      clocks.rawTimerTotal = Number(s.timerTotal) || 0
+      clocks.rawTimerPaused = s.timerPaused === true
+      clocks.rawTimerLabel = String(s.timerLabel || "")
       clocks.stopwatchStart = Number(s.stopwatchStart) || 0
       clocks.stopwatchBanked = Number(s.stopwatchBanked) || 0
       clocks.stopwatchRunning = s.stopwatchRunning === true
-      // Ran out while the shell was down: ring now.
-      if (clocks.timerEnd > 0 && !clocks.timerPaused && clocks.timerEnd <= clocks.now) clocks.timerFinished()
+      if (clocks.rawTimerEnd > 0 && !clocks.rawTimerPaused && clocks.rawTimerEnd <= clocks.now) clocks.timerFinished()
     }
     onLoadFailed: clocks.restored = true
   }

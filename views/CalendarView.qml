@@ -1,17 +1,17 @@
 import QtQuick
+import QtQuick.Controls
 import qs.Commons
 import "../IslandModel.js" as Model
 
-// The calendar: a month on the left (today filled, the selected day ringed,
-// a dot under days with events) and the selected day's events on the right.
-// Click an event to open its meeting link. The + button (or the empty
-// state) opens a field to paste a calendar's .ics link.
+// Dynamic Island Calendar View with Google Calendar Sync & Multi-View Support.
+// Integrates Month view and Agenda view with 1-click meeting join and
+// Raycast Glass aesthetics.
 Item {
   id: view
 
   property var island: null
   readonly property var cal: island.calendar
-  readonly property int pad: island.s(18)
+  readonly property int pad: island.s(16)
 
   readonly property date today: new Date()
   property int year: today.getFullYear()
@@ -19,16 +19,18 @@ Item {
   property double selected: new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
   readonly property bool adding: island.calendarAdding
 
+  // View mode: "month" or "agenda"
+  property string currentMode: "month"
+
   readonly property var days: cal.month(year, monthIndex)
   readonly property var dayEvents: days[Model.dayKey(selected)] || []
-  readonly property bool hasCalendars: cal.sources.length > 0
+  readonly property bool hasCalendars: cal.sources.length > 0 || cal.googleEvents.length > 0
   property bool pickingHolidays: false
 
-  // Monday or Sunday first, whatever the locale says.
+  // Weekday layout
   readonly property int firstWeekday: Qt.locale().firstDayOfWeek % 7
   readonly property int leadingBlanks: (new Date(year, monthIndex, 1).getDay() - firstWeekday + 7) % 7
 
-  // Back to today whenever it is opened.
   onVisibleChanged: {
     if (!visible) return
     var t = new Date()
@@ -52,24 +54,25 @@ Item {
     return Qt.formatDateTime(new Date(t), island.clockFormat.indexOf("AP") !== -1 ? "h:mm AP" : "HH:mm")
   }
 
-  // ------------------------------------------------------------ month grid
+  // --------------------------------------------------------------------------
+  // TOP BAR: Navigation, View Tabs, Sync Status, Add Button
+  // --------------------------------------------------------------------------
   Item {
-    id: monthPane
+    id: topNav
     x: view.pad
-    y: view.pad
-    width: island.s(7 * 32)
-    height: parent.height - view.pad * 2
+    y: island.s(10)
+    width: parent.width - view.pad * 2
+    height: island.s(28)
 
-    Item {
-      id: header
-      width: parent.width
-      height: island.s(26)
+    // Month & Year title with chevrons
+    Row {
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: island.s(6)
 
       Text {
-        anchors.left: parent.left
-        anchors.leftMargin: island.s(4)
         anchors.verticalCenter: parent.verticalCenter
-        text: Qt.locale().standaloneMonthName(view.monthIndex) + " " + view.year
+        text: Qt.formatDateTime(new Date(view.year, view.monthIndex, 1), "MMMM yyyy")
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island.textFamily
@@ -78,114 +81,405 @@ Item {
         color: island.fg
       }
 
-      Row {
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
+      IconButton {
+        glyph: "󰅁"
+        glyphSize: island.f(13)
+        color: island.fgDim
+        fontFamily: island.fontFamily
+        onClicked: view.shiftMonth(-1)
+      }
 
-        IconButton {
-          glyph: "󰅁"
-          glyphSize: island.f(13)
-          color: island.fg
-          fontFamily: island.fontFamily
-          onClicked: view.shiftMonth(-1)
-        }
-
-        IconButton {
-          glyph: "󰅂"
-          glyphSize: island.f(13)
-          color: island.fg
-          fontFamily: island.fontFamily
-          onClicked: view.shiftMonth(1)
-        }
+      IconButton {
+        glyph: "󰅂"
+        glyphSize: island.f(13)
+        color: island.fgDim
+        fontFamily: island.fontFamily
+        onClicked: view.shiftMonth(1)
       }
     }
 
+    // Right Controls: Mode Switcher & Sync / Add
     Row {
-      id: weekdays
-      y: header.height + island.s(6)
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: island.s(8)
 
-      Repeater {
-        model: 7
+      // Google sync chip
+      Rectangle {
+        height: island.s(22)
+        width: syncRow.implicitWidth + island.s(14)
+        radius: height / 2
+        color: Util.alpha(island.fg, 0.08)
 
-        Text {
-          required property int index
-          width: island.s(32)
-          horizontalAlignment: Text.AlignHCenter
-          text: Qt.locale().dayName((view.firstWeekday + index) % 7, Locale.NarrowFormat)
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(10)
-          color: island.fgDim
-        }
-      }
-    }
-
-    Grid {
-      y: weekdays.y + weekdays.height + island.s(4)
-      columns: 7
-
-      Repeater {
-        model: 42
-
-        Item {
-          id: cell
-          required property int index
-          readonly property date date: new Date(view.year, view.monthIndex, 1 - view.leadingBlanks + index)
-          readonly property double time: date.getTime()
-          readonly property bool inMonth: date.getMonth() === view.monthIndex
-          readonly property bool isToday: Model.dayKey(time) === Model.dayKey(Date.now())
-          readonly property bool isSelected: time === view.selected
-          readonly property bool busy: !!view.days[Model.dayKey(time)]
-
-          width: island.s(32)
-          height: island.s(26)
+        Row {
+          id: syncRow
+          anchors.centerIn: parent
+          spacing: island.s(5)
 
           Rectangle {
-            anchors.centerIn: parent
-            width: island.s(24)
+            width: island.s(6)
             height: width
             radius: width / 2
-            color: cell.isToday ? island.accentColor
-              : (dayMouse.containsMouse ? Util.alpha(island.fg, 0.1) : "transparent")
-            border.width: cell.isSelected && !cell.isToday ? Math.max(1, island.s(1.5)) : 0
-            border.color: island.accentColor
+            anchors.verticalCenter: parent.verticalCenter
+            color: cal.googleConnected ? island.greenColor : island.fgDim
           }
 
           Text {
-            anchors.centerIn: parent
-            text: cell.date.getDate()
+            anchors.verticalCenter: parent.verticalCenter
+            text: cal.googleSyncing ? "Syncing…" : "Google"
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
-            font.family: island.fontFamily
-            font.pixelSize: island.f(11)
-            font.bold: cell.isToday || cell.isSelected
-            font.features: { "tnum": 1 }
-            color: cell.isToday ? island.surface : island.fg
-            opacity: cell.inMonth ? 1 : 0.3
+            font.family: island.textFamily
+            font.pixelSize: island.f(10)
+            color: island.fgDim
           }
+        }
 
+        MouseArea {
+          anchors.fill: parent
+          cursorShape: Qt.PointingHandCursor
+          onClicked: cal.resyncGoogle()
+        }
+      }
+
+      // Mode Switcher: [ Month | Agenda ]
+      Rectangle {
+        height: island.s(24)
+        width: island.s(128)
+        radius: height / 2
+        color: Util.alpha(island.fg, 0.1)
+
+        Row {
+          anchors.fill: parent
+
+          // Month Tab
           Rectangle {
-            visible: cell.busy
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: island.s(0)
-            width: island.s(4)
-            height: width
-            radius: width / 2
-            color: cell.isToday ? island.fg : island.orangeColor
-            opacity: cell.inMonth ? 1 : 0.4
+            width: parent.width / 2
+            height: parent.height
+            radius: height / 2
+            color: view.currentMode === "month" ? island.accentColor : "transparent"
+
+            Text {
+              anchors.centerIn: parent
+              text: "Month"
+              textFormat: Text.PlainText
+              renderType: Text.NativeRendering
+              font.family: island.textFamily
+              font.pixelSize: island.f(11)
+              font.weight: view.currentMode === "month" ? Font.DemiBold : Font.Normal
+              color: view.currentMode === "month" ? "#ffffff" : island.fgDim
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: view.currentMode = "month"
+            }
           }
 
-          MouseArea {
-            id: dayMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              view.selected = cell.time
-              island.calendarAdding = false
-              if (!cell.inMonth) view.shiftMonth(cell.date < new Date(view.year, view.monthIndex, 1) ? -1 : 1)
+          // Agenda Tab
+          Rectangle {
+            width: parent.width / 2
+            height: parent.height
+            radius: height / 2
+            color: view.currentMode === "agenda" ? island.accentColor : "transparent"
+
+            Text {
+              anchors.centerIn: parent
+              text: "Agenda"
+              textFormat: Text.PlainText
+              renderType: Text.NativeRendering
+              font.family: island.textFamily
+              font.pixelSize: island.f(11)
+              font.weight: view.currentMode === "agenda" ? Font.DemiBold : Font.Normal
+              color: view.currentMode === "agenda" ? "#ffffff" : island.fgDim
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: view.currentMode = "agenda"
+            }
+          }
+        }
+      }
+
+      // Focus Pomodoro shortcut
+      IconButton {
+        glyph: ""
+        glyphSize: island.f(14)
+        color: island.orangeColor
+        fontFamily: island.fontFamily
+        onClicked: island.openFocusd()
+      }
+
+      // Add Calendar Link
+      IconButton {
+        glyph: "󰐕"
+        glyphSize: island.f(14)
+        color: island.fg
+        fontFamily: island.fontFamily
+        onClicked: island.calendarAdding = !island.calendarAdding
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // MONTH VIEW CONTAINER
+  // --------------------------------------------------------------------------
+  Item {
+    id: monthContainer
+    visible: view.currentMode === "month" && !view.adding && !view.pickingHolidays
+    anchors.top: topNav.bottom
+    anchors.topMargin: island.s(6)
+    anchors.left: parent.left
+    anchors.leftMargin: view.pad
+    anchors.right: parent.right
+    anchors.rightMargin: view.pad
+    anchors.bottom: parent.bottom
+    anchors.bottomMargin: view.pad
+
+    // Left: Month Grid
+    Item {
+      id: monthGridPane
+      anchors.left: parent.left
+      anchors.top: parent.top
+      width: island.s(7 * 32)
+      height: parent.height
+
+      // Weekday letters
+      Row {
+        id: weekdayRow
+        anchors.top: parent.top
+        width: parent.width
+        Repeater {
+          model: 7
+          Item {
+            width: island.s(32)
+            height: island.s(18)
+            Text {
+              anchors.centerIn: parent
+              text: ["M","T","W","T","F","S","S"][(index + view.firstWeekday + 6) % 7]
+              textFormat: Text.PlainText
+              renderType: Text.NativeRendering
+              font.family: island.textFamily
+              font.pixelSize: island.f(10)
+              font.weight: Font.DemiBold
+              color: island.fgDim
+            }
+          }
+        }
+      }
+
+      // Days Grid
+      Grid {
+        anchors.top: weekdayRow.bottom
+        anchors.topMargin: island.s(2)
+        columns: 7
+        rowSpacing: island.s(2)
+        columnSpacing: 0
+
+        Repeater {
+          model: view.leadingBlanks + new Date(view.year, view.monthIndex + 1, 0).getDate()
+
+          Item {
+            id: cell
+            readonly property int dayNumber: index - view.leadingBlanks + 1
+            readonly property bool blank: index < view.leadingBlanks
+            readonly property double time: blank ? 0 : new Date(view.year, view.monthIndex, dayNumber).getTime()
+            readonly property bool isToday: !blank && view.year === view.today.getFullYear()
+              && view.monthIndex === view.today.getMonth() && dayNumber === view.today.getDate()
+            readonly property bool isSelected: !blank && time === view.selected
+            readonly property var dayEventList: blank ? [] : (view.days[Model.dayKey(time)] || [])
+            readonly property bool hasEvents: dayEventList.length > 0 || (cal.datesWithEvents && cal.datesWithEvents.indexOf(Model.dayKey(time)) !== -1)
+
+            width: island.s(32)
+            height: island.s(28)
+
+            Rectangle {
+              anchors.centerIn: parent
+              width: island.s(26)
+              height: width
+              radius: width / 2
+              color: cell.isSelected ? island.accentColor
+                : (cell.isToday ? Util.alpha(island.accentColor, 0.25)
+                  : (cellMouse.containsMouse ? Util.alpha(island.fg, 0.08) : "transparent"))
+
+              Text {
+                anchors.centerIn: parent
+                visible: !cell.blank
+                text: String(cell.dayNumber)
+                textFormat: Text.PlainText
+                renderType: Text.NativeRendering
+                font.family: island.fontFamily
+                font.pixelSize: island.f(11)
+                font.weight: (cell.isToday || cell.isSelected) ? Font.DemiBold : Font.Normal
+                color: cell.isSelected ? "#ffffff" : (cell.isToday ? island.accentColor : island.fg)
+              }
+
+              // Event indicator dot
+              Rectangle {
+                visible: cell.hasEvents && !cell.isSelected
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: island.s(2)
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: island.s(3)
+                height: width
+                radius: width / 2
+                color: cell.isToday ? island.accentColor : island.fgDim
+              }
+            }
+
+            MouseArea {
+              id: cellMouse
+              anchors.fill: parent
+              enabled: !cell.blank
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: view.selected = cell.time
+            }
+          }
+        }
+      }
+    }
+
+    // Divider
+    Rectangle {
+      anchors.left: monthGridPane.right
+      anchors.leftMargin: island.s(10)
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      width: 1
+      color: Util.alpha(island.fg, 0.08)
+    }
+
+    // Right: Day Schedule / Event Card
+    Item {
+      anchors.left: monthGridPane.right
+      anchors.leftMargin: island.s(18)
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+
+      // Selected Day Header
+      Text {
+        id: selectedDayLabel
+        anchors.top: parent.top
+        text: Qt.formatDateTime(new Date(view.selected), "dddd, MMMM d")
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island.textFamily
+        font.pixelSize: island.f(12)
+        font.weight: Font.DemiBold
+        color: island.accentColor
+      }
+
+      // Empty State
+      Text {
+        visible: view.dayEvents.length === 0
+        anchors.centerIn: parent
+        text: "No events scheduled"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island.textFamily
+        font.pixelSize: island.f(11)
+        color: island.fgDim
+      }
+
+      // Day Events ScrollView
+      ScrollView {
+        visible: view.dayEvents.length > 0
+        anchors.top: selectedDayLabel.bottom
+        anchors.topMargin: island.s(6)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        clip: true
+
+        Column {
+          width: parent.width
+          spacing: island.s(6)
+
+          Repeater {
+            model: view.dayEvents
+
+            Rectangle {
+              id: evCard
+              required property var modelData
+              width: parent.width
+              height: island.s(48)
+              radius: island.s(8)
+              color: Util.alpha(island.fg, 0.05)
+
+              Column {
+                anchors.left: parent.left
+                anchors.leftMargin: island.s(10)
+                anchors.right: joinBtn.visible ? joinBtn.left : parent.right
+                anchors.rightMargin: island.s(6)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: island.s(2)
+
+                Text {
+                  width: parent.width
+                  text: evCard.modelData.title || "Meeting"
+                  elide: Text.ElideRight
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(11)
+                  font.weight: Font.DemiBold
+                  color: island.fg
+                }
+
+                Text {
+                  width: parent.width
+                  text: evCard.modelData.allDay ? "All Day" : (evCard.modelData.timeString || (view.timeText(evCard.modelData.start) + " - " + view.timeText(evCard.modelData.end)))
+                  elide: Text.ElideRight
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(10)
+                  color: island.fgDim
+                }
+              }
+
+              // Join meeting button
+              Rectangle {
+                id: joinBtn
+                visible: !!evCard.modelData.url
+                anchors.right: parent.right
+                anchors.rightMargin: island.s(8)
+                anchors.verticalCenter: parent.verticalCenter
+                height: island.s(24)
+                width: island.s(58)
+                radius: height / 2
+                color: Util.alpha(island.greenColor, joinMouse.pressed ? 0.35 : 0.2)
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "󰍫 Join"
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(10)
+                  font.weight: Font.DemiBold
+                  color: island.greenColor
+                }
+
+                MouseArea {
+                  id: joinMouse
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: island.openLink(evCard.modelData.url)
+                }
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                enabled: !joinBtn.visible && !!evCard.modelData.url
+                cursorShape: Qt.PointingHandCursor
+                onClicked: if (evCard.modelData.url) island.openLink(evCard.modelData.url)
+              }
             }
           }
         }
@@ -193,408 +487,255 @@ Item {
     }
   }
 
-  // ----------------------------------------------------------- right column
+  // --------------------------------------------------------------------------
+  // AGENDA VIEW CONTAINER
+  // --------------------------------------------------------------------------
   Item {
-    id: side
-    anchors.left: monthPane.right
-    anchors.leftMargin: island.s(16)
+    id: agendaContainer
+    visible: view.currentMode === "agenda" && !view.adding && !view.pickingHolidays
+    anchors.top: topNav.bottom
+    anchors.topMargin: island.s(6)
+    anchors.left: parent.left
+    anchors.leftMargin: view.pad
     anchors.right: parent.right
     anchors.rightMargin: view.pad
-    y: view.pad
-    height: parent.height - view.pad * 2
+    anchors.bottom: parent.bottom
+    anchors.bottomMargin: view.pad
 
-    Item {
-      id: sideHeader
-      width: parent.width
-      height: island.s(26)
+    ScrollView {
+      anchors.fill: parent
+      clip: true
 
-      Text {
-        anchors.left: parent.left
-        anchors.right: addButton.left
-        anchors.verticalCenter: parent.verticalCenter
-        text: view.adding ? "Calendars" : Qt.formatDate(new Date(view.selected), "dddd d")
-        elide: Text.ElideRight
-        textFormat: Text.PlainText
-        renderType: Text.NativeRendering
-        font.family: island.textFamily
-        font.pixelSize: island.f(13)
-        font.weight: Font.DemiBold
-        color: island.fg
-      }
+      Column {
+        width: parent.width
+        spacing: island.s(8)
 
-      IconButton {
-        id: addButton
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        glyph: view.adding ? "󰅖" : "󰐕"
-        glyphSize: island.f(13)
-        color: island.fg
-        fontFamily: island.fontFamily
-        onClicked: island.calendarAdding = !island.calendarAdding
+        Repeater {
+          model: cal.googleEvents.length > 0 ? cal.googleEvents.slice(0, 15) : (cal.events || []).slice(0, 10)
+
+          Rectangle {
+            id: agendaCard
+            required property var modelData
+            width: parent.width
+            height: island.s(44)
+            radius: island.s(8)
+            color: Util.alpha(island.fg, 0.05)
+
+            Row {
+              anchors.fill: parent
+              anchors.leftMargin: island.s(10)
+              anchors.rightMargin: island.s(10)
+              spacing: island.s(10)
+
+              // Date badge
+              Column {
+                width: island.s(68)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 1
+
+                Text {
+                  text: Qt.formatDateTime(new Date(agendaCard.modelData.start), "ddd, MMM d")
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(10)
+                  font.weight: Font.DemiBold
+                  color: island.accentColor
+                }
+
+                Text {
+                  text: agendaCard.modelData.allDay ? "All Day" : view.timeText(agendaCard.modelData.start)
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(9)
+                  color: island.fgDim
+                }
+              }
+
+              // Event details
+              Column {
+                width: parent.width - island.s(80) - (agendaJoinBtn.visible ? island.s(66) : 0)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 1
+
+                Text {
+                  width: parent.width
+                  text: agendaCard.modelData.title || "Meeting"
+                  elide: Text.ElideRight
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(11)
+                  font.weight: Font.DemiBold
+                  color: island.fg
+                }
+
+                Text {
+                  width: parent.width
+                  text: agendaCard.modelData.location || "Google Calendar"
+                  elide: Text.ElideRight
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(9)
+                  color: island.fgDim
+                }
+              }
+
+              // Join button
+              Rectangle {
+                id: agendaJoinBtn
+                visible: !!agendaCard.modelData.url
+                anchors.verticalCenter: parent.verticalCenter
+                height: island.s(24)
+                width: island.s(58)
+                radius: height / 2
+                color: Util.alpha(island.greenColor, 0.2)
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "󰍫 Join"
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island.textFamily
+                  font.pixelSize: island.f(10)
+                  font.weight: Font.DemiBold
+                  color: island.greenColor
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: island.openLink(agendaCard.modelData.url)
+                }
+              }
+            }
+          }
+        }
       }
     }
+  }
 
-    // --- the day's events
+  // --------------------------------------------------------------------------
+  // ADD CALENDAR & HOLIDAYS OVERLAY
+  // --------------------------------------------------------------------------
+  Item {
+    visible: view.adding || view.pickingHolidays
+    anchors.top: topNav.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    anchors.margins: view.pad
+
+    // Holiday Country Picker
     ListView {
-      visible: !view.adding
-      y: sideHeader.height + island.s(6)
-      width: parent.width
-      height: parent.height - y
+      visible: view.pickingHolidays
+      anchors.fill: parent
       clip: true
       spacing: island.s(4)
-      boundsBehavior: Flickable.StopAtBounds
-      model: view.dayEvents
+      model: [{ code: "off", name: "No holidays" }, { code: "auto", name: "Automatic" }].concat(Model.holidayCalendars)
 
       delegate: Rectangle {
-        id: eventRow
         required property var modelData
-        readonly property bool past: !modelData.allDay && modelData.end < Date.now()
         width: ListView.view.width
-        height: island.s(40)
-        radius: island.s(12)
-        color: Util.alpha(island.fg, eventMouse.containsMouse && modelData.url ? 0.1 : 0.05)
-        opacity: past ? 0.5 : 1
-
-        Rectangle {
-          x: island.s(8)
-          anchors.verticalCenter: parent.verticalCenter
-          width: island.s(3)
-          height: parent.height - island.s(16)
-          radius: width / 2
-          color: eventRow.modelData.allDay ? island.orangeColor : island.accentColor
-        }
-
-        Column {
-          x: island.s(18)
-          anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - x - island.s(26)
-          spacing: island.s(1)
-
-          Text {
-            width: parent.width
-            text: eventRow.modelData.title || "Busy"
-            elide: Text.ElideRight
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island.textFamily
-            font.pixelSize: island.f(12)
-            font.weight: Font.DemiBold
-            color: island.fg
-          }
-
-          Text {
-            text: eventRow.modelData.allDay ? "All day"
-              : view.timeText(eventRow.modelData.start) + " – " + view.timeText(eventRow.modelData.end)
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island.textFamily
-            font.pixelSize: island.f(10)
-            color: island.fgDim
-          }
-        }
-
-        Text {
-          visible: !!eventRow.modelData.url
-          anchors.right: parent.right
-          anchors.rightMargin: island.s(10)
-          anchors.verticalCenter: parent.verticalCenter
-          text: "󰏌"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.fontFamily
-          font.pixelSize: island.f(12)
-          color: island.accentColor
-        }
-
-        MouseArea {
-          id: eventMouse
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: eventRow.modelData.url ? Qt.PointingHandCursor : Qt.ArrowCursor
-          onClicked: if (eventRow.modelData.url) island.openLink(eventRow.modelData.url)
-        }
-      }
-    }
-
-    Text {
-      visible: !view.adding && view.dayEvents.length === 0
-      y: sideHeader.height + island.s(30)
-      width: parent.width
-      horizontalAlignment: Text.AlignHCenter
-      wrapMode: Text.WordWrap
-      text: view.hasCalendars ? "Nothing scheduled" : "No calendar added yet.\nTap + to add one."
-      textFormat: Text.PlainText
-      renderType: Text.NativeRendering
-      font.family: island.textFamily
-      font.pixelSize: island.f(12)
-      color: island.fgDim
-    }
-
-    // Result of the last add: green when it worked, red with the reason.
-    Text {
-      visible: !!view.cal.lastResult
-      anchors.bottom: parent.bottom
-      width: parent.width
-      wrapMode: Text.WordWrap
-      maximumLineCount: 2
-      elide: Text.ElideRight
-      text: view.cal.lastResult ? view.cal.lastResult.text : ""
-      textFormat: Text.PlainText
-      renderType: Text.NativeRendering
-      font.family: island.textFamily
-      font.pixelSize: island.f(10)
-      font.weight: Font.DemiBold
-      color: view.cal.lastResult && view.cal.lastResult.ok ? island.greenColor : island.urgentColor
-    }
-
-    // --- holiday country picker
-    ListView {
-      id: countries
-      visible: view.adding && view.pickingHolidays
-      y: sideHeader.height + island.s(6)
-      width: parent.width
-      height: parent.height - y
-      clip: true
-      spacing: island.s(2)
-      boundsBehavior: Flickable.StopAtBounds
-      model: [{ code: "off", name: "No holidays" }].concat(Model.holidayCalendars)
-
-      delegate: Rectangle {
-        id: country
-        required property var modelData
-        readonly property bool chosen: (modelData.code === "off" && view.cal.holidayCountry === "")
-          || modelData.code === view.cal.holidayCountry
-        width: ListView.view.width
-        height: island.s(24)
+        height: island.s(26)
         radius: height / 2
-        color: chosen ? Util.alpha(island.accentColor, 0.2) : Util.alpha(island.fg, countryMouse.containsMouse ? 0.1 : 0.03)
+        color: Util.alpha(island.fg, 0.05)
 
         Text {
           anchors.left: parent.left
           anchors.leftMargin: island.s(12)
           anchors.verticalCenter: parent.verticalCenter
-          text: country.modelData.name + (country.modelData.code === view.cal.detectedCountry ? "  (your timezone)" : "")
+          text: modelData.name
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island.textFamily
           font.pixelSize: island.f(11)
-          font.bold: country.chosen
           color: island.fg
         }
 
         MouseArea {
-          id: countryMouse
           anchors.fill: parent
-          hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: {
-            view.cal.setHolidays(country.modelData.code === view.cal.detectedCountry ? "auto" : country.modelData.code)
+            view.cal.setHolidays(modelData.code)
             view.pickingHolidays = false
           }
         }
       }
     }
 
-    // --- add / remove calendars
+    // Add / Paste Calendar
     Column {
       visible: view.adding && !view.pickingHolidays
-      y: sideHeader.height + island.s(6)
-      width: parent.width
-      spacing: island.s(6)
+      anchors.fill: parent
+      spacing: island.s(10)
 
-      Item {
+      Row {
         width: parent.width
-        height: island.s(30)
-
-      Rectangle {
-        id: pasteButton
-        anchors.right: parent.right
-        width: pasteLabel.implicitWidth + island.s(22)
-        height: parent.height
-        radius: height / 2
-        color: Util.alpha(island.accentColor, pasteMouse.pressed ? 0.34 : (pasteMouse.containsMouse ? 0.26 : 0.18))
-
-        Text {
-          id: pasteLabel
-          anchors.centerIn: parent
-          text: "󰆒 Paste"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(11)
-          font.weight: Font.DemiBold
-          color: island.accentColor
-        }
-
-        MouseArea {
-          id: pasteMouse
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          // Adds the copied link directly, keyboard or not.
-          onClicked: island.addCalendarFromClipboard()
-        }
-      }
-
-      Rectangle {
-        anchors.left: parent.left
-        anchors.right: pasteButton.left
-        anchors.rightMargin: island.s(6)
-        height: parent.height
-        radius: height / 2
-        color: Util.alpha(island.fg, 0.08)
-        border.width: input.activeFocus ? 1 : 0
-        border.color: island.accentColor
-
-        TextInput {
-          id: input
-          anchors.left: parent.left
-          anchors.leftMargin: island.s(12)
-          anchors.right: parent.right
-          anchors.rightMargin: island.s(12)
-          anchors.verticalCenter: parent.verticalCenter
-          clip: true
-          font.family: island.fontFamily
-          font.pixelSize: island.f(11)
-          color: island.fg
-          selectionColor: Util.alpha(island.accentColor, 0.5)
-          renderType: Text.NativeRendering
-          selectByMouse: true
-
-          function commit() {
-            var link = text.trim()
-            if (!link) return
-            island.addCalendar(link)
-            text = ""
-            island.calendarAdding = false
-          }
-
-          Keys.onReturnPressed: commit()
-          Keys.onEnterPressed: commit()
-          Keys.onEscapePressed: island.calendarAdding = false
-
-          Text {
-            anchors.fill: parent
-            visible: input.text === ""
-            text: "Calendar link (.ics)"
-            elide: Text.ElideRight
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font: input.font
-            color: island.fgDim
-          }
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          cursorShape: Qt.IBeamCursor
-          onClicked: input.forceActiveFocus()
-          // Let the TextInput handle drags/selection once focused.
-          enabled: !input.activeFocus
-        }
-      }
-      }
-
-      // Holidays: one tap to change country or turn off.
-      Rectangle {
-        width: parent.width
-        height: island.s(26)
-        radius: height / 2
-        color: Util.alpha(island.orangeColor, holidaysMouse.containsMouse ? 0.24 : 0.14)
-
-        Text {
-          anchors.left: parent.left
-          anchors.leftMargin: island.s(12)
-          anchors.right: parent.right
-          anchors.rightMargin: island.s(12)
-          anchors.verticalCenter: parent.verticalCenter
-          text: "󰃭  Holidays: " + (view.cal.holidayName || "off") + "  ›"
-          elide: Text.ElideRight
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(11)
-          font.weight: Font.DemiBold
-          color: island.orangeColor
-        }
-
-        MouseArea {
-          id: holidaysMouse
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: view.pickingHolidays = true
-        }
-      }
-
-      // Calendars already added, each with its own ×.
-      Repeater {
-        model: view.cal.sources.filter(function(l) { return l !== view.cal.holidayLink })
+        height: island.s(32)
+        spacing: island.s(8)
 
         Rectangle {
-          id: source
-          required property var modelData
-          width: parent.width
-          height: island.s(26)
+          width: parent.width - pasteBtn.width - island.s(8)
+          height: parent.height
           radius: height / 2
-          color: Util.alpha(island.fg, 0.05)
+          color: Util.alpha(island.fg, 0.08)
 
-          Text {
+          TextInput {
+            id: input
             anchors.left: parent.left
             anchors.leftMargin: island.s(12)
-            anchors.right: problem.visible ? problem.left : remove.left
-            anchors.rightMargin: island.s(6)
-            anchors.verticalCenter: parent.verticalCenter
-            text: String(source.modelData).replace(/^[a-z]+:\/\//, "").replace(/\?.*$/, "")
-            elide: Text.ElideMiddle
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island.textFamily
-            font.pixelSize: island.f(10)
-            color: island.fg
-          }
-
-          // What went wrong with this link on the last fetch, if anything.
-          Text {
-            id: problem
-            readonly property string st: view.cal.statusOf(source.modelData)
-            visible: st !== "" && st !== "ok"
-            anchors.right: remove.left
-            anchors.rightMargin: island.s(4)
-            anchors.verticalCenter: parent.verticalCenter
-            text: st.indexOf("HTTP ") === 0 ? st.substring(5) + " error" : st
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island.textFamily
-            font.pixelSize: island.f(10)
-            font.weight: Font.DemiBold
-            color: island.urgentColor
-          }
-
-          IconButton {
-            id: remove
             anchors.right: parent.right
+            anchors.rightMargin: island.s(12)
             anchors.verticalCenter: parent.verticalCenter
-            glyph: "󰅖"
-            glyphSize: island.f(10)
+            font.family: island.fontFamily
+            font.pixelSize: island.f(11)
             color: island.fg
-            fontFamily: island.fontFamily
-            onClicked: island.removeCalendar(source.modelData)
+            clip: true
+
+            Keys.onReturnPressed: {
+              if (text.trim()) {
+                island.addCalendar(text.trim())
+                text = ""
+                island.calendarAdding = false
+              }
+            }
+          }
+        }
+
+        Rectangle {
+          id: pasteBtn
+          width: island.s(80)
+          height: parent.height
+          radius: height / 2
+          color: Util.alpha(island.accentColor, 0.25)
+
+          Text {
+            anchors.centerIn: parent
+            text: "󰆒 Paste"
+            textFormat: Text.PlainText
+            renderType: Text.NativeRendering
+            font.family: island.textFamily
+            font.pixelSize: island.f(11)
+            color: island.accentColor
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: island.addCalendarFromClipboard()
           }
         }
       }
 
       Text {
-        visible: view.cal.sources.length === 0
-        width: parent.width
-        wrapMode: Text.WordWrap
-        text: "Google: Settings › your calendar › Secret address in iCal format. " +
-              "iCloud: share as public calendar. Outlook: Publish a calendar › ICS."
+        text: "Google Calendar: Settings › your calendar › Secret address in iCal format."
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island.textFamily
         font.pixelSize: island.f(10)
-        lineHeight: 1.15
         color: island.fgDim
       }
     }

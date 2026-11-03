@@ -3,10 +3,9 @@ import Quickshell
 import Quickshell.Io
 import "../IslandModel.js" as Model
 
-// Next meeting from iCalendar feeds. Any calendar that can publish an .ics
-// link works (Google "secret address in iCal format", iCloud public
-// calendar, Outlook "publish calendar", Nextcloud, Fastmail) as can local
-// .ics files. Configured with "calendars": [...] in the island's settings.
+// Next meeting from iCalendar feeds and Google Calendar sync (tnr.clock adapter).
+// Integrates local Google Calendar cache (~/.cache/omarchy/calendar/events.json)
+// with upstream .ics link parser.
 Item {
   id: calendar
 
@@ -16,13 +15,10 @@ Item {
     var v = island ? island.setting("calendars", []) : []
     return Array.isArray(v) ? v.map(function(x) { return String(x) }) : (v ? [String(v)] : [])
   }
-  // ...plus links added from the calendar view, which live in the island's
-  // own file. Writing shell.json makes the shell rebuild the whole island
-  // (closing the view mid-add), so the view never writes there.
+  // ...plus links added from the calendar view, which live in the island's own file.
   property var added: []
+
   // ---- holidays: the country's public holiday calendar, on by default.
-  // "auto" follows the system timezone; the calendar view can pick another
-  // country or turn it off (kept in the island's own prefs file).
   property string detectedCountry: ""
   property string holidayChoice: "auto"
   readonly property string holidayCountry: {
@@ -58,42 +54,38 @@ Item {
 
   readonly property var sources: {
     var out = []
-    var all = configured.concat(added).concat(holidayLink ? [holidayLink] : [])
-    for (var i = 0; i < all.length; i++)
-      if (all[i] && out.indexOf(all[i]) === -1) out.push(all[i])
+    function add(l) {
+      var s = String(l || "").trim()
+      if (s && out.indexOf(s) === -1) out.push(s)
+    }
+    if (holidayLink) add(holidayLink)
+    for (var i = 0; i < configured.length; i++) add(configured[i])
+    for (var j = 0; j < added.length; j++) add(added[j])
     return out
   }
 
-  readonly property string addedDir: Quickshell.env("HOME") + "/.config/omarchy/dynamic-island"
+  readonly property string addedDir: Quickshell.env("HOME") + "/.local/state/omarchy/dynamic-island"
   readonly property string addedPath: addedDir + "/calendars.json"
 
   function add(link) {
     var l = String(link || "").trim()
     if (!l) return
-    justAdded = l
-    lastResult = null
-    var next = added.filter(function(x) { return x !== l })
-    next.push(l)
+    var next = added.slice()
+    if (next.indexOf(l) === -1) next.push(l)
     added = next
-    addedFile.setText(JSON.stringify(next, null, 2) + "\n")
+    justAdded = l
+    addedFile.setText(JSON.stringify(added, null, 2) + "\n")
   }
 
   function remove(link) {
-    var l = String(link || "")
-    if (l === holidayLink) { setHolidays("off"); return }
-    if (added.indexOf(l) !== -1) {
-      added = added.filter(function(x) { return x !== l })
-      addedFile.setText(JSON.stringify(added, null, 2) + "\n")
+    var l = String(link || "").trim()
+    added = added.filter(function(x) { return x !== l })
+    addedFile.setText(JSON.stringify(added, null, 2) + "\n")
+    if (status[l]) {
+      var s = Object.assign({}, status)
+      delete s[l]
+      status = s
     }
-    // A hand-written one: take it out of shell.json too (this reloads the
-    // island, which is fine for a removal).
-    if (configured.indexOf(l) !== -1 && island) island.editCalendars("remove", l)
-  }
-
-  Process {
-    running: true
-    command: ["mkdir", "-p", calendar.addedDir]
-    onExited: { addedFile.reload(); prefsFile.reload() }
   }
 
   FileView {
@@ -114,36 +106,121 @@ Item {
 
   property var events: []
   property double now: Date.now()
-  // The fetched feeds, kept so the month view can read any month on demand.
   property string raw: ""
   property int version: 0
 
-  // Every event (all-day ones too) in one month, grouped by day, for the
-  // calendar view. Recomputed when the feeds are re-read.
+  // ---- Google Calendar Sync Adapter (tnr.clock) ----
+  property var googleCalendarData: ({ connected: false, events: [], datesWithEvents: [], upcoming: null, error: null })
+  property var googleEvents: []
+  readonly property var datesWithEvents: (googleCalendarData && googleCalendarData.datesWithEvents) ? googleCalendarData.datesWithEvents : []
+  readonly property bool googleConnected: !!(googleCalendarData && googleCalendarData.connected)
+  readonly property bool googleSyncing: syncProc.running
+
+  function parseGoogleCalendar(jsonText) {
+    if (!jsonText || String(jsonText).trim() === "") return
+    try {
+      var data = JSON.parse(String(jsonText).trim())
+      googleCalendarData = data
+      var list = []
+      var rawList = data.events || []
+      for (var i = 0; i < rawList.length; i++) {
+        var ev = rawList[i]
+        list.push({
+          title: ev.summary || "Event",
+          start: ev.startTimestamp ? ev.startTimestamp * 1000 : new Date(ev.startIso).getTime(),
+          end: ev.endTimestamp ? ev.endTimestamp * 1000 : new Date(ev.endIso).getTime(),
+          allDay: ev.isAllDay === true,
+          url: ev.meetUrl || "",
+          location: ev.location || "",
+          description: ev.description || "",
+          timeString: ev.timeString || "",
+          status: ev.status || "confirmed"
+        })
+      }
+      googleEvents = list
+      version++
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
+  function resyncGoogle() {
+    if (syncProc.running) return
+    syncProc.running = true
+  }
+
+  Process {
+    id: syncProc
+    command: ["python3", Quickshell.env("HOME") + "/.config/omarchy/plugins/omarchy-dynamic-island/sources/calendar-sync.py"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        if (text && text.trim() !== "") {
+          calendar.parseGoogleCalendar(text)
+        }
+      }
+    }
+  }
+
+  FileView {
+    id: googleCacheFile
+    path: Quickshell.env("HOME") + "/.cache/omarchy/calendar/events.json"
+    printErrors: false
+    watchChanges: true
+    onFileChanged: reload()
+    onLoaded: calendar.parseGoogleCalendar(text())
+  }
+
+  Timer {
+    interval: 5 * 60000
+    repeat: true
+    running: true
+    onTriggered: calendar.resyncGoogle()
+  }
+
+  // Combined month events: ICS feeds + Google Calendar
   function month(year, monthIndex) {
     version
     var from = new Date(year, monthIndex, 1).getTime() - 7 * 86400000
     var to = new Date(year, monthIndex + 1, 1).getTime() + 14 * 86400000
-    return Model.eventsByDay(Model.parseIcs(raw, from, to, true))
+    var baseMap = raw ? Model.eventsByDay(Model.parseIcs(raw, from, to, true)) : {}
+    for (var i = 0; i < googleEvents.length; i++) {
+      var ge = googleEvents[i]
+      if (ge.start >= from && ge.start <= to) {
+        var k = Model.dayKey(ge.start)
+        if (!baseMap[k]) baseMap[k] = []
+        baseMap[k].push(ge)
+      }
+    }
+    return baseMap
   }
 
-  // The next event that has not ended yet.
+  // Next upcoming event across all calendars
   readonly property var next: {
-    for (var i = 0; i < events.length; i++)
-      if (events[i].end > now) return events[i]
+    version
+    now
+    var combined = (events || []).concat(googleEvents || [])
+    combined.sort(function(a, b) { return a.start - b.start })
+    for (var i = 0; i < combined.length; i++) {
+      var e = combined[i]
+      if (e.end > now) return e
+    }
     return null
   }
-  // Today's all-day events (festivals, holidays, birthdays) for the idle
-  // view's date line.
+
+  // Today's all-day events
   readonly property var todayAllDay: {
     version
     var d = new Date(now)
     var from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
     var list = raw ? Model.parseIcs(raw, from, from + 86400000 - 1, true) : []
-    return list.filter(function(e) { return e.allDay }).map(function(e) { return e.title })
+    var all = list.filter(function(e) { return e.allDay }).map(function(e) { return e.title })
+    for (var i = 0; i < googleEvents.length; i++) {
+      var ge = googleEvents[i]
+      if (ge.allDay && ge.start >= from && ge.start < from + 86400000) all.push(ge.title)
+    }
+    return all
   }
 
-  // Live activity from `leadMinutes` before until 5 minutes after it starts.
   readonly property bool soon: next !== null && next.start - now <= leadMinutes * 60000
     && now - next.start < 5 * 60000
   readonly property string countdown: next ? Model.untilText(next.start, now) : ""
@@ -153,12 +230,11 @@ Item {
   Timer {
     interval: 20000
     repeat: true
-    running: calendar.events.length > 0
+    running: calendar.events.length > 0 || calendar.googleEvents.length > 0
     triggeredOnStart: true
     onTriggered: {
       calendar.now = Date.now()
       var ev = calendar.next
-      // One heads-up as it starts.
       if (ev && ev.start <= calendar.now && calendar.now - ev.start < 60000) {
         var key = ev.title + "@" + ev.start
         if (calendar.announced !== key && calendar.island) {
@@ -169,15 +245,7 @@ Item {
     }
   }
 
-  // Fetch every source (URLs with curl, local files; ~ expands) and parse
-  // the next week.
-  // Each source is announced with a status line before its contents
-  // ("@@ISLAND-SOURCE <index> ok", or "HTTP 404", "unreachable", "file not
-  // found", "too large", "not a calendar"), so a bad link can be reported
-  // instead of silently showing nothing.
-  // Everything read is capped, since the shell holds it in memory: 4 MiB a
-  // source (a busy calendar is a few hundred KiB), local paths must be
-  // regular files, and the whole output stops at 16 MiB.
+  // Fetch ICS sources
   readonly property string fetchScript:
     'max=4194304; { i=0; for u in "$@"; do s="${u/#\\~/$HOME}"; t=$(mktemp); h=$(mktemp); st=ok; ' +
     'case "$s" in webcal://*) s="https://${s#webcal://}" ;; esac; ' +
@@ -195,13 +263,8 @@ Item {
     'echo "@@ISLAND-SOURCE $i $st"; [ "$st" = ok ] && cat "$t"; echo; rm -f "$t" "$h"; i=$((i+1)); done; } ' +
     '| head -c 16777216'
 
-  // source link -> "ok" or what went wrong, from the last fetch.
   property var status: ({})
-  // A link just added from the calendar view: report how it went.
   property string justAdded: ""
-
-  // The outcome of the last add, shown inside the calendar view (the HUD
-  // is hidden while the view is open): { ok: bool, text: string }.
   property var lastResult: null
   Timer { id: resultTimer; interval: 7000; onTriggered: calendar.lastResult = null }
 
@@ -233,11 +296,9 @@ Item {
   }
 
   function refresh() {
+    resyncGoogle()
     if (sources.length === 0) { events = []; raw = ""; version++; return }
-    // A fetch already in flight has the old list: fetch again when it ends.
     if (fetch.running) { refetch = true; return }
-    // Set here rather than bound: a binding can lag the sources change that
-    // triggered this refresh and fetch the old list.
     fetchedSources = sources.slice()
     fetch.command = ["bash", "-c", fetchScript, "bash"].concat(fetchedSources)
     fetch.running = true
@@ -259,8 +320,6 @@ Item {
       island.showHud({ key: "calendar", layout: "label", label: "Calendar added", icon: "󰃭",
                        valueText: count + (count === 1 ? " event" : " events"), color: island.greenColor, duration: 2600 })
     } else {
-      // Google's "public address" 404s unless the calendar is public; the
-      // secret address is what people almost always want.
       var google = link.indexOf("calendar.google.com") !== -1 && link.indexOf("/public/") !== -1 && st === "HTTP 404"
       lastResult = { ok: false, text: google
         ? "󰀦  Google refused the public address (404). Use \"Secret address in iCal format\"."
@@ -281,30 +340,7 @@ Item {
     onTriggered: calendar.refresh()
   }
 
-  // Demo: a meeting in eight minutes.
-  function demo() {
-    var start = Date.now() + 8 * 60000
-    events = [{ title: "Design review", start: start, end: start + 30 * 60000, allDay: false, url: "" }]
-    // A little month to look at in the calendar view.
-    function stamp(t) {
-      var d = new Date(t)
-      function p(n) { return n < 10 ? "0" + n : "" + n }
-      return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "T" + p(d.getHours()) + p(d.getMinutes()) + "00"
-    }
-    var today = new Date()
-    var d0 = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-    function at(days, h, m) { return d0.getTime() + days * 86400000 + (h * 60 + m) * 60000 }
-    raw = [
-      "BEGIN:VCALENDAR",
-      "BEGIN:VEVENT", "SUMMARY:Design review", "DTSTART:" + stamp(start), "DTEND:" + stamp(start + 1800000),
-      "LOCATION:https://meet.google.com/abc-defg-hij", "END:VEVENT",
-      "BEGIN:VEVENT", "SUMMARY:Standup", "DTSTART:" + stamp(at(-20, 10, 0)), "DTEND:" + stamp(at(-20, 10, 15)),
-      "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "END:VEVENT",
-      "BEGIN:VEVENT", "SUMMARY:Lunch with Priya", "DTSTART:" + stamp(at(1, 13, 0)), "DTEND:" + stamp(at(1, 14, 0)), "END:VEVENT",
-      "BEGIN:VEVENT", "SUMMARY:Omarchy release", "DTSTART;VALUE=DATE:" + stamp(at(4, 0, 0)).substring(0, 8), "END:VEVENT",
-      "END:VCALENDAR"
-    ].join("\r\n") + "\r\n" + raw   // keep real feeds (holidays) alongside
-    now = Date.now()
-    version++
+  Component.onCompleted: {
+    resyncGoogle()
   }
 }

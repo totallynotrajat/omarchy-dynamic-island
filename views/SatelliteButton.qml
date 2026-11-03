@@ -1,6 +1,8 @@
 import QtQuick
 import qs.Commons
 
+// Floating glass orb beside the expanded island. Active: jade glyph on a
+// faint jade fill. Tooltip opens outward, away from the island.
 Item {
   id: sat
 
@@ -14,35 +16,25 @@ Item {
   width: island ? island.s(42) : 42
   height: width
 
-  // Background floating circular glass orb
+  readonly property color fg: island ? island.fg : "#F7E8B2"
+  readonly property color accent: island ? island.accentColor : "#2DD5B7"
+  readonly property color glass: island ? island.surfaceTop : "#111C18"
+
   Rectangle {
     id: bg
     anchors.fill: parent
     radius: width / 2
-    color: sat.isActive ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.28)
-      : (satMouse.containsMouse ? Util.alpha(island ? island.surfaceTop : "#111C18", 0.95) : Util.alpha(island ? island.surfaceTop : "#111C18", 0.72))
+    color: sat.isActive ? Util.alpha(sat.accent, 0.13)
+      : Util.alpha(sat.glass, satMouse.containsMouse ? 0.96 : 0.82)
     border.width: 1
-    border.color: sat.isActive ? (island ? island.accentColor : "#2DD5B7")
-      : (satMouse.containsMouse ? Util.alpha(island ? island.fg : "#ffffff", 0.4) : (island ? island.rim : "#ffffff"))
+    border.color: sat.isActive ? Util.alpha(sat.accent, 0.45)
+      : Util.alpha(sat.fg, satMouse.containsMouse ? 0.18 : 0.08)
 
-    scale: satMouse.pressed ? 0.92 : (satMouse.containsMouse ? 1.08 : 1.0)
+    scale: satMouse.pressed ? 0.94 : (satMouse.containsMouse ? 1.06 : 1.0)
 
-    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+    Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
     Behavior on color { ColorAnimation { duration: 160 } }
     Behavior on border.color { ColorAnimation { duration: 160 } }
-
-    // Active jade glow indicator ring
-    Rectangle {
-      anchors.fill: parent
-      anchors.margins: -(island ? island.s(3) : 3)
-      radius: width / 2
-      color: "transparent"
-      border.width: 1.5
-      border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.5)
-      visible: sat.isActive
-      opacity: sat.isActive ? 1 : 0
-      Behavior on opacity { NumberAnimation { duration: 180 } }
-    }
 
     Text {
       anchors.centerIn: parent
@@ -50,30 +42,29 @@ Item {
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       font.family: island ? island.fontFamily : "sans-serif"
-      font.pixelSize: island ? island.f(18) : 18
-      color: sat.isActive ? (island ? island.accentColor : "#2DD5B7")
-        : (satMouse.containsMouse ? (island ? island.fg : "#ffffff") : (island ? island.fgDim : "#aaaaaa"))
+      font.pixelSize: island ? island.f(17) : 17
+      color: sat.isActive ? sat.accent
+        : (satMouse.containsMouse ? sat.fg : Util.alpha(sat.fg, 0.6))
       Behavior on color { ColorAnimation { duration: 150 } }
     }
   }
 
-  // Floating Tooltip placed horizontally to avoid sibling overlap
   Rectangle {
     id: tip
     visible: opacity > 0.01
     opacity: satMouse.containsMouse ? 1 : 0
-    Behavior on opacity { NumberAnimation { duration: 150 } }
+    Behavior on opacity { NumberAnimation { duration: 140 } }
     anchors.right: sat.side === "left" ? parent.left : undefined
-    anchors.rightMargin: sat.side === "left" ? (island ? island.s(8) : 8) : 0
+    anchors.rightMargin: sat.side === "left" ? (island ? island.s(10) : 10) : 0
     anchors.left: sat.side === "right" ? parent.right : undefined
-    anchors.leftMargin: sat.side === "right" ? (island ? island.s(8) : 8) : 0
+    anchors.leftMargin: sat.side === "right" ? (island ? island.s(10) : 10) : 0
     anchors.verticalCenter: parent.verticalCenter
     height: island ? island.s(22) : 22
-    width: tipText.implicitWidth + (island ? island.s(14) : 14)
+    width: tipText.implicitWidth + (island ? island.s(18) : 18)
     radius: height / 2
-    color: island ? island.bodyAt(0.92) : "#111C18"
+    color: sat.glass
     border.width: 1
-    border.color: island ? island.rim : "#ffffff"
+    border.color: Util.alpha(sat.fg, 0.07)
     z: 100
 
     Text {
@@ -85,7 +76,7 @@ Item {
       font.family: island ? island.textFamily : "sans-serif"
       font.pixelSize: island ? island.f(10) : 10
       font.weight: Font.Medium
-      color: island ? island.fg : "#ffffff"
+      color: sat.fg
     }
   }
 

@@ -1,28 +1,45 @@
 import QtQuick
+import QtQuick.Shapes
 import qs.Commons
 import "../IslandModel.js" as Model
 
-// Opened timer / Pomodoro / stopwatch: phase and cycle capsules over a large
-// countdown and the preset chips on the left; play/pause wrapped in the
-// progress ring on the right, with +5m, skip and reset beside it.
+// Opened timer / Pomodoro / stopwatch.
+// Left: phase + cycle dashes, the countdown, preset track.
+// Right: secondary ghost actions, then play/pause wrapped in the progress ring.
 Item {
   id: view
 
   property var island: null
   readonly property var clocks: island ? island.clocks : null
   readonly property bool timer: !!(clocks && clocks.timerActive)
-  readonly property bool stopwatch: !!(clocks && clocks.stopwatchActive)
-  readonly property bool paused: stopwatch ? !clocks.stopwatchRunning : (!timer || clocks.timerPaused)
-  readonly property bool isBreak: !!(clocks && clocks.isBreak && !stopwatch)
-  readonly property color accent: island ? island.accentColor : "#2DD5B7"
-  readonly property color tone: stopwatch ? accent
-    : (!timer ? (island ? island.fgDim : "#F7E8B2") : (isBreak ? island.greenColor : island.orangeColor))
-  readonly property int pad: island ? island.s(20) : 20
+  readonly property bool stopwatch: !!(clocks && !timer && clocks.stopwatchActive)
+  readonly property bool running: timer ? !clocks.timerPaused : !!(clocks && clocks.stopwatchRunning)
+  readonly property bool isPomodoro: !!(clocks && clocks.isPomodoro)
+  readonly property bool isBreak: timer && !!clocks.isBreak
+  readonly property color fg: island ? island.fg : "#F7E8B2"
+  readonly property color tone: timer ? (isBreak ? island.greenColor : island.orangeColor)
+    : (stopwatch ? island.accentColor : Util.alpha(fg, 0.34))
+  readonly property int pad: island ? island.s(24) : 24
 
-  readonly property string sessionTitle: !clocks ? "" : (stopwatch ? "Stopwatch" : clocks.timerLabel)
+  readonly property string phase: {
+    if (stopwatch) return "Stopwatch"
+    if (!timer) return "Focus"
+    var l = String(clocks.timerLabel || "")
+    if (l === "Pomodoro" || l === "Work" || l === "") return "Focus"
+    if (l === "Deep Work") return "Deep work"
+    if (l === "Short Break") return "Short break"
+    if (l === "Long Break") return "Long break"
+    return l
+  }
+
   readonly property string timeDisplay: !clocks ? "25:00"
-    : (stopwatch ? Model.formatClock(clocks.stopwatchElapsed / 1000, true) : clocks.timeDisplay)
-  readonly property real progress: clocks && !stopwatch ? clocks.timerProgress : 0
+    : (stopwatch ? Model.formatClock(clocks.stopwatchElapsed / 1000, true)
+                 : Model.formatClock(Math.ceil(clocks.timerLeft / 1000)))
+
+  readonly property real progress: !clocks ? 0
+    : (timer ? clocks.timerProgress
+             : (stopwatch ? (clocks.stopwatchElapsed % 60000) / 60000 : 0))
+
   readonly property int activeCycle: {
     if (!clocks) return 0
     var c = clocks.completedSessions
@@ -31,35 +48,34 @@ Item {
 
   function toggle() {
     if (!clocks) return
-    if (stopwatch) clocks.toggleStopwatch()
+    if (clocks.stopwatchActive && !clocks.timerActive) clocks.toggleStopwatch()
     else clocks.toggleTimer()
   }
 
   // ------------------------------------------------------------ Left: readout
   Column {
-    id: readout
     x: view.pad
     anchors.verticalCenter: parent.verticalCenter
-    width: controls.x - x - (island ? island.s(14) : 14)
-    spacing: island ? island.s(4) : 4
+    spacing: 0
 
     Row {
+      height: island ? island.s(14) : 14
       spacing: island ? island.s(8) : 8
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        text: view.sessionTitle.toUpperCase()
+        text: view.phase
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island ? island.textFamily : "sans-serif"
-        font.pixelSize: island ? island.f(10) : 10
+        font.pixelSize: island ? island.f(11) : 11
         font.weight: Font.DemiBold
-        font.letterSpacing: 0.8
-        color: view.tone
+        color: view.timer || view.stopwatch ? view.tone : island.fgDim
+        Behavior on color { ColorAnimation { duration: 200 } }
       }
 
       Row {
-        visible: !view.stopwatch
+        visible: view.isPomodoro
         anchors.verticalCenter: parent.verticalCenter
         spacing: island ? island.s(3) : 3
 
@@ -71,24 +87,25 @@ Item {
             width: island ? island.s(10) : 10
             height: island ? island.s(3) : 3
             radius: height / 2
-            color: index < view.activeCycle ? view.tone : Util.alpha(island ? island.fg : "#F7E8B2", 0.14)
+            color: index < view.activeCycle ? view.tone : Util.alpha(view.fg, 0.14)
           }
         }
       }
     }
 
     Text {
+      id: countdown
       text: view.timeDisplay
+      height: island ? island.s(48) : 48
+      verticalAlignment: Text.AlignVCenter
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
-      font.family: island ? island.fontFamily : "sans-serif"
-      font.pixelSize: island ? island.f(34) : 34
+      font.family: island ? island.textFamily : "sans-serif"
+      font.pixelSize: island ? island.f(40) : 40
       font.weight: Font.Medium
+      font.letterSpacing: -0.5
       font.features: { "tnum": 1 }
-      color: island ? island.fg : "#F7E8B2"
-      opacity: view.paused && view.timer ? 0.6 : 1
-
-      Behavior on opacity { NumberAnimation { duration: 200 } }
+      color: view.timer || view.stopwatch ? view.fg : Util.alpha(view.fg, 0.6)
 
       MouseArea {
         anchors.fill: parent
@@ -97,154 +114,192 @@ Item {
       }
     }
 
-    Row {
-      spacing: island ? island.s(5) : 5
+    Item { width: 1; height: island ? island.s(6) : 6 }
 
-      Repeater {
-        model: [
-          { min: 25, label: "25m", name: "Focus", aliases: ["Focus", "Pomodoro", "Work"] },
-          { min: 50, label: "50m", name: "Deep Work", aliases: ["Deep Work"] },
-          { min: 5, label: "5m", name: "Short Break", aliases: ["Short Break"] },
-          { min: 15, label: "15m", name: "Long Break", aliases: ["Long Break"] }
-        ]
+    // Preset track
+    Rectangle {
+      width: presetRow.implicitWidth + (island ? island.s(4) : 4)
+      height: island ? island.s(22) : 22
+      radius: height / 2
+      color: Util.alpha(view.fg, 0.05)
 
-        Rectangle {
-          id: chip
-          required property var modelData
-          readonly property bool current: view.timer && !view.stopwatch
-            && modelData.aliases.indexOf(view.clocks.timerLabel) !== -1
-          width: chipText.implicitWidth + (island ? island.s(14) : 14)
-          height: island ? island.s(20) : 20
-          radius: height / 2
-          color: current ? Util.alpha(view.tone, 0.2)
-            : Util.alpha(island ? island.fg : "#F7E8B2", chipMouse.containsMouse ? 0.12 : 0.05)
-          border.width: current ? 1 : 0
-          border.color: Util.alpha(view.tone, 0.6)
+      Row {
+        id: presetRow
+        anchors.centerIn: parent
+        spacing: island ? island.s(2) : 2
 
-          Text {
-            id: chipText
-            anchors.centerIn: parent
-            text: chip.modelData.label
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island ? island.fontFamily : "sans-serif"
-            font.pixelSize: island ? island.f(10) : 10
-            font.weight: Font.DemiBold
-            font.features: { "tnum": 1 }
-            color: chip.current ? view.tone : (island ? island.fgDim : "#F7E8B2")
-          }
+        Repeater {
+          model: [
+            { min: 25, label: "25m", name: "Focus", aliases: ["Focus", "Pomodoro", "Work"] },
+            { min: 50, label: "50m", name: "Deep Work", aliases: ["Deep Work"] },
+            { min: 5, label: "5m", name: "Short Break", aliases: ["Short Break"] },
+            { min: 15, label: "15m", name: "Long Break", aliases: ["Long Break"] }
+          ]
 
-          MouseArea {
-            id: chipMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: if (view.clocks) view.clocks.startTimer(chip.modelData.min * 60, chip.modelData.name)
+          Rectangle {
+            id: chip
+            required property var modelData
+            readonly property bool on: view.timer && modelData.aliases.indexOf(view.clocks.timerLabel) !== -1
+            width: chipText.implicitWidth + (island ? island.s(18) : 18)
+            height: island ? island.s(18) : 18
+            radius: height / 2
+            color: on ? Util.alpha(view.tone, 0.16)
+              : Util.alpha(view.fg, chipMouse.containsMouse ? 0.07 : 0)
+            Behavior on color { ColorAnimation { duration: 140 } }
+
+            Text {
+              id: chipText
+              anchors.centerIn: parent
+              text: chip.modelData.label
+              textFormat: Text.PlainText
+              renderType: Text.NativeRendering
+              font.family: island ? island.textFamily : "sans-serif"
+              font.pixelSize: island ? island.f(10) : 10
+              font.weight: chip.on ? Font.DemiBold : Font.Normal
+              font.features: { "tnum": 1 }
+              color: chip.on ? view.tone : (island ? island.fgDim : "#C1C497")
+            }
+
+            MouseArea {
+              id: chipMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: if (view.clocks) view.clocks.startTimer(chip.modelData.min * 60, chip.modelData.name)
+            }
           }
         }
       }
     }
   }
 
-  // ------------------------------------------------------------ Right: ring + transport
-  Row {
-    id: controls
+  // ------------------------------------------------------------ Right: ring + play
+  Item {
+    id: dial
     anchors.right: parent.right
     anchors.rightMargin: view.pad
     anchors.verticalCenter: parent.verticalCenter
-    spacing: island ? island.s(12) : 12
+    width: island ? island.s(68) : 68
+    height: width
 
-    Column {
-      anchors.verticalCenter: parent.verticalCenter
-      spacing: island ? island.s(6) : 6
+    readonly property real stroke: island ? island.s(3) : 3
+    readonly property real r: width / 2 - stroke / 2
 
-      Repeater {
-        model: [
-          { key: "add", glyph: "+5", text: true },
-          { key: "skip", glyph: "󰒭", text: false },
-          { key: "reset", glyph: "󰅖", text: false }
-        ]
+    Shape {
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
 
-        Rectangle {
-          id: small
-          required property var modelData
-          readonly property bool shown: modelData.key === "add" ? view.timer
-            : (modelData.key === "skip" ? !!(view.timer && view.clocks.isPomodoro) : (view.timer || view.stopwatch))
-          width: island ? island.s(28) : 28
-          height: width
-          radius: width / 2
-          opacity: shown ? 1 : 0.3
-          color: Util.alpha(island ? island.fg : "#F7E8B2", smallMouse.containsMouse && shown ? 0.14 : 0.06)
+      ShapePath {
+        strokeWidth: dial.stroke
+        strokeColor: Util.alpha(view.fg, 0.08)
+        fillColor: "transparent"
+        PathAngleArc {
+          centerX: dial.width / 2; centerY: dial.height / 2
+          radiusX: dial.r; radiusY: dial.r
+          startAngle: -90; sweepAngle: 360
+        }
+      }
 
-          Text {
-            anchors.centerIn: parent
-            text: small.modelData.glyph
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: small.modelData.text ? (island ? island.textFamily : "sans-serif") : (island ? island.fontFamily : "sans-serif")
-            font.pixelSize: small.modelData.text ? (island ? island.f(10) : 10) : (island ? island.f(12) : 12)
-            font.weight: Font.DemiBold
-            color: island ? island.fg : "#F7E8B2"
-          }
-
-          MouseArea {
-            id: smallMouse
-            anchors.fill: parent
-            enabled: small.shown
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              if (!view.clocks) return
-              if (small.modelData.key === "add") view.clocks.addToTimer(300)
-              else if (small.modelData.key === "skip") view.clocks.skipPomodoro()
-              else view.clocks.dismissActive()
-            }
-          }
+      ShapePath {
+        strokeWidth: dial.stroke
+        strokeColor: view.tone
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        PathAngleArc {
+          centerX: dial.width / 2; centerY: dial.height / 2
+          radiusX: dial.r; radiusY: dial.r
+          startAngle: -90
+          sweepAngle: view.progress > 0 ? Math.max(1, view.progress * 360) : 0
         }
       }
     }
 
-    Item {
-      anchors.verticalCenter: parent.verticalCenter
-      width: island ? island.s(88) : 88
+    Rectangle {
+      anchors.centerIn: parent
+      width: island ? island.s(50) : 50
       height: width
+      radius: width / 2
+      color: view.timer ? view.tone : (island ? island.accentColor : "#2DD5B7")
+      scale: playMouse.pressed ? 0.92 : (playMouse.containsMouse ? 1.04 : 1)
+      Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+      Behavior on color { ColorAnimation { duration: 200 } }
 
-      ProgressRing {
-        anchors.fill: parent
-        progress: view.progress
-        color: view.timer ? view.tone : view.accent
-        lineWidth: island ? island.s(4) : 4
-      }
-
-      Rectangle {
+      Text {
         anchors.centerIn: parent
-        width: island ? island.s(56) : 56
-        height: width
-        radius: width / 2
-        color: view.accent
-        scale: playMouse.pressed ? 0.92 : (playMouse.containsMouse ? 1.05 : 1)
-
-        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
-
-        Text {
-          anchors.centerIn: parent
-          anchors.horizontalCenterOffset: view.paused ? (island ? island.s(1) : 1) : 0
-          text: view.paused ? "󰐊" : "󰏤"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island ? island.fontFamily : "sans-serif"
-          font.pixelSize: island ? island.f(22) : 22
-          color: island ? island.surfaceBottom : "#090F0D"
-        }
-
-        MouseArea {
-          id: playMouse
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: view.toggle()
-        }
+        anchors.horizontalCenterOffset: view.running ? 0 : (island ? island.s(1) : 1)
+        text: view.running ? "󰏤" : "󰐊"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.fontFamily : "sans-serif"
+        font.pixelSize: island ? island.f(20) : 20
+        color: island ? island.surfaceBottom : "#090F0D"
       }
+
+      MouseArea {
+        id: playMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: view.toggle()
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ Secondary actions
+  Row {
+    anchors.right: dial.left
+    anchors.rightMargin: island ? island.s(12) : 12
+    anchors.verticalCenter: dial.verticalCenter
+    spacing: island ? island.s(2) : 2
+
+    // +5 min
+    Rectangle {
+      visible: view.timer
+      anchors.verticalCenter: parent.verticalCenter
+      width: island ? island.s(28) : 28
+      height: width
+      radius: width / 2
+      color: Util.alpha(view.fg, add5Mouse.pressed ? 0.14 : (add5Mouse.containsMouse ? 0.08 : 0))
+
+      Text {
+        anchors.centerIn: parent
+        text: "+5"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.textFamily : "sans-serif"
+        font.pixelSize: island ? island.f(11) : 11
+        font.weight: Font.DemiBold
+        font.features: { "tnum": 1 }
+        color: add5Mouse.containsMouse ? view.fg : (island ? island.fgDim : "#C1C497")
+      }
+
+      MouseArea {
+        id: add5Mouse
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: if (view.clocks) view.clocks.addToTimer(300)
+      }
+    }
+
+    IconButton {
+      visible: view.timer && view.isPomodoro
+      anchors.verticalCenter: parent.verticalCenter
+      glyph: "󰒭"
+      glyphSize: island ? island.f(14) : 14
+      color: island ? island.fgDim : "#C1C497"
+      fontFamily: island ? island.fontFamily : "sans-serif"
+      onClicked: if (view.clocks) view.clocks.skipPomodoro()
+    }
+
+    IconButton {
+      visible: view.timer || view.stopwatch
+      anchors.verticalCenter: parent.verticalCenter
+      glyph: "󰅖"
+      glyphSize: island ? island.f(13) : 13
+      color: island ? island.fgDim : "#C1C497"
+      fontFamily: island ? island.fontFamily : "sans-serif"
+      onClicked: if (view.clocks) view.clocks.dismissActive()
     }
   }
 }

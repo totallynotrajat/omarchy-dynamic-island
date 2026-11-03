@@ -1,27 +1,37 @@
 import QtQuick
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
 
+// Shelf: drop files or folders, then copy their path, open a terminal there,
+// or take them off the shelf.
 Item {
   id: view
 
   property var island: null
-  readonly property int pad: island ? island.s(18) : 18
+  readonly property int pad: island ? island.s(22) : 22
+  readonly property string home: Quickshell.env("HOME") || ""
   property var stagedItems: []
 
   Process {
     id: shelfCmdRunner
   }
 
+  function prettyDir(p) {
+    var dir = String(p).replace(/\/[^\/]*$/, "") || "/"
+    if (home && (dir === home || dir.indexOf(home + "/") === 0)) dir = "~" + dir.slice(home.length)
+    return dir
+  }
+
   function copyPath(p) {
-    // Pass the path as an argument so names with $ or backticks stay literal
+    // Path goes in as an argument so $ or backticks in names stay literal
     shelfCmdRunner.command = ["sh", "-c", "printf '%s' \"$1\" | wl-copy", "sh", p]
     shelfCmdRunner.running = true
     if (island) island.showHud({
       key: "shelf",
       layout: "toast",
-      title: "Copied",
+      title: "Path copied",
       message: p,
       icon: "󰆏",
       color: island.accentColor,
@@ -32,15 +42,6 @@ Item {
   function openInTerminal(p, isDir) {
     var dir = isDir ? p : (p.substring(0, p.lastIndexOf("/")) || "/")
     Quickshell.execDetached(["alacritty", "--working-directory", dir])
-    if (island) island.showHud({
-      key: "shelf",
-      layout: "toast",
-      title: "Terminal",
-      message: dir,
-      icon: "󰞷",
-      color: island.accentColor,
-      duration: 1500
-    })
   }
 
   function removeItem(index) {
@@ -63,288 +64,268 @@ Item {
     var list = view.stagedItems.slice()
     list.unshift({ name: name, path: trimmed, isDir: !name.includes(".") })
     view.stagedItems = list
-    if (island) island.showHud({
-      key: "shelf",
-      layout: "toast",
-      title: "Shelved",
-      message: name,
-      icon: "󰉋",
-      color: island.accentColor,
-      duration: 1400
-    })
   }
 
-  // Header Row
+  // ------------------------------------------------------------ Header
   Item {
     id: header
     x: view.pad
-    y: view.pad
-    width: parent.width - view.pad * 2
-    height: island.s(24)
+    y: island ? island.s(14) : 14
+    width: parent.width - view.pad - (island ? island.s(14) : 14)
+    height: island ? island.s(28) : 28
 
     Row {
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      spacing: island.s(8)
+      spacing: island ? island.s(7) : 7
 
       Text {
-        text: "󰉋"
-        textFormat: Text.PlainText
-        renderType: Text.NativeRendering
-        font.family: island.fontFamily
-        font.pixelSize: island.f(15)
-        color: island.accentColor
-      }
-
-      Text {
+        id: titleText
         text: "Shelf"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
-        font.family: island.textFamily
-        font.pixelSize: island.f(13)
+        font.family: island ? island.textFamily : "sans-serif"
+        font.pixelSize: island ? island.f(13) : 13
         font.weight: Font.DemiBold
-        color: island.fg
+        color: island ? island.fg : "#F7E8B2"
       }
 
-      Rectangle {
+      Text {
         visible: view.stagedItems.length > 0
-        width: countText.implicitWidth + island.s(10)
-        height: island.s(18)
-        radius: height / 2
-        color: Util.alpha(island.accentColor, 0.2)
-        anchors.verticalCenter: parent.verticalCenter
-
-        Text {
-          id: countText
-          anchors.centerIn: parent
-          text: String(view.stagedItems.length)
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.fontFamily
-          font.pixelSize: island.f(10)
-          font.weight: Font.DemiBold
-          color: island.accentColor
-        }
+        anchors.baseline: titleText.baseline
+        text: String(view.stagedItems.length)
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.textFamily : "sans-serif"
+        font.pixelSize: island ? island.f(12) : 12
+        font.weight: Font.Medium
+        font.features: { "tnum": 1 }
+        color: Util.alpha(island ? island.fg : "#F7E8B2", 0.34)
       }
     }
 
-    // Actions
-    Row {
+    Rectangle {
+      visible: view.stagedItems.length > 0
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      spacing: island.s(8)
+      width: clearText.implicitWidth + (island ? island.s(20) : 20)
+      height: island ? island.s(26) : 26
+      radius: height / 2
+      color: Util.alpha(island ? island.fg : "#F7E8B2", clearMouse.containsMouse ? 0.08 : 0)
 
-      Rectangle {
-        visible: view.stagedItems.length > 0
-        width: clearText.implicitWidth + island.s(12)
-        height: island.s(22)
-        radius: island.s(6)
-        color: clearMouse.containsMouse ? Util.alpha(island.urgentColor, 0.25) : Util.alpha(island.fg, 0.08)
+      Text {
+        id: clearText
+        anchors.centerIn: parent
+        text: "Clear"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.textFamily : "sans-serif"
+        font.pixelSize: island ? island.f(11) : 11
+        color: clearMouse.containsMouse ? (island ? island.fg : "#F7E8B2") : (island ? island.fgDim : "#C1C497")
+      }
 
-        Text {
-          id: clearText
-          anchors.centerIn: parent
-          text: "Clear"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(10)
-          color: clearMouse.containsMouse ? island.urgentColor : island.fgDim
-        }
-
-        MouseArea {
-          id: clearMouse
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: view.clearAll()
-        }
+      MouseArea {
+        id: clearMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: view.clearAll()
       }
     }
   }
 
-  // Drop zone / list container
+  // ------------------------------------------------------------ Drop target + list
   DropArea {
     id: dropArea
-    x: view.pad
-    y: header.y + header.height + island.s(10)
-    width: parent.width - view.pad * 2
-    height: parent.height - y - view.pad
+    x: island ? island.s(12) : 12
+    y: header.y + header.height + (island ? island.s(8) : 8)
+    width: parent.width - x * 2
+    height: parent.height - y - (island ? island.s(18) : 18)
 
     onDropped: function(drop) {
       if (drop.hasUrls) {
-        for (var i = 0; i < drop.urls.length; i++) {
-          view.addPath(drop.urls[i])
-        }
+        for (var i = 0; i < drop.urls.length; i++) view.addPath(drop.urls[i])
         drop.acceptProposedAction()
       }
     }
 
-    // Empty state dropzone
-    Rectangle {
+    // Empty: one dashed target
+    Item {
       anchors.fill: parent
-      visible: view.stagedItems.length === 0
-      radius: island.s(10)
-      color: dropArea.containsDrag ? Util.alpha(island.accentColor, 0.12) : Util.alpha(island.fg, 0.03)
-      border.width: 1
-      border.color: dropArea.containsDrag ? island.accentColor : Util.alpha(island.fg, 0.1)
+      anchors.leftMargin: island ? island.s(6) : 6
+      anchors.rightMargin: island ? island.s(6) : 6
+      visible: view.stagedItems.length === 0 || dropArea.containsDrag
+
+      Rectangle {
+        anchors.fill: parent
+        radius: island ? island.s(16) : 16
+        color: Util.alpha(island ? island.accentColor : "#2DD5B7", dropArea.containsDrag ? 0.06 : 0)
+        Behavior on color { ColorAnimation { duration: 140 } }
+      }
+
+      Shape {
+        id: dash
+        anchors.fill: parent
+        preferredRendererType: Shape.CurveRenderer
+        readonly property real r: island ? island.s(16) : 16
+
+        ShapePath {
+          strokeWidth: 1
+          strokeStyle: ShapePath.DashLine
+          dashPattern: [4, 4]
+          strokeColor: dropArea.containsDrag
+            ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.6)
+            : Util.alpha(island ? island.fg : "#F7E8B2", 0.13)
+          fillColor: "transparent"
+          PathRectangle {
+            x: 0.5; y: 0.5
+            width: dash.width - 1; height: dash.height - 1
+            radius: dash.r
+          }
+        }
+      }
 
       Column {
         anchors.centerIn: parent
-        spacing: island.s(6)
+        spacing: island ? island.s(6) : 6
 
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
-          text: "󰉋"
+          text: "󰇚"
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
-          font.family: island.fontFamily
-          font.pixelSize: island.f(24)
-          color: dropArea.containsDrag ? island.accentColor : island.fgDim
+          font.family: island ? island.fontFamily : "sans-serif"
+          font.pixelSize: island ? island.f(20) : 20
+          color: dropArea.containsDrag
+            ? (island ? island.accentColor : "#2DD5B7")
+            : Util.alpha(island ? island.fg : "#F7E8B2", 0.34)
         }
 
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
-          text: "Drop files here"
+          text: "Drop files"
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(11)
-          color: dropArea.containsDrag ? island.accentColor : island.fgDim
+          font.family: island ? island.textFamily : "sans-serif"
+          font.pixelSize: island ? island.f(11) : 11
+          color: dropArea.containsDrag
+            ? (island ? island.accentColor : "#2DD5B7")
+            : Util.alpha(island ? island.fg : "#F7E8B2", 0.34)
         }
       }
     }
 
-    // List of Staged items
     ListView {
       id: shelfList
       anchors.fill: parent
-      visible: view.stagedItems.length > 0
+      visible: view.stagedItems.length > 0 && !dropArea.containsDrag
       clip: true
-      spacing: island.s(6)
+      spacing: 0
+      boundsBehavior: Flickable.StopAtBounds
       model: view.stagedItems
 
-      delegate: Rectangle {
+      delegate: Item {
+        id: row
         required property var modelData
         required property int index
+        readonly property bool hot: rowHover.hovered
+
         width: shelfList.width
-        height: island.s(36)
-        radius: island.s(10)
-        color: Util.alpha(island.fg, shelfHover.hovered ? 0.08 : 0.04)
+        height: island ? island.s(42) : 42
 
-        HoverHandler { id: shelfHover }
+        HoverHandler { id: rowHover }
 
-        Row {
-          anchors.left: parent.left
-          anchors.leftMargin: island.s(10)
+        Rectangle {
+          anchors.fill: parent
+          radius: island ? island.s(10) : 10
+          color: Util.alpha(island ? island.fg : "#F7E8B2", row.hot ? 0.045 : 0)
+          Behavior on color { ColorAnimation { duration: 120 } }
+        }
+
+        Rectangle {
+          visible: row.index > 0 && !row.hot
+          x: island ? island.s(10) : 10
+          width: parent.width - x * 2
+          height: 1
+          color: Util.alpha(island ? island.fg : "#F7E8B2", 0.07)
+        }
+
+        Text {
+          id: kindIcon
+          x: island ? island.s(10) : 10
+          width: island ? island.s(28) : 28
           anchors.verticalCenter: parent.verticalCenter
-          spacing: island.s(8)
+          text: row.modelData.isDir ? "󰉋" : "󰈔"
+          textFormat: Text.PlainText
+          renderType: Text.NativeRendering
+          font.family: island ? island.fontFamily : "sans-serif"
+          font.pixelSize: island ? island.f(15) : 15
+          color: row.modelData.isDir ? (island ? island.accentColor : "#2DD5B7") : (island ? island.fgDim : "#C1C497")
+        }
+
+        Column {
+          anchors.left: kindIcon.right
+          anchors.right: actions.left
+          anchors.rightMargin: island ? island.s(10) : 10
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: island ? island.s(1) : 1
 
           Text {
-            text: modelData.isDir ? "󰉋" : "󰈔"
+            width: parent.width
+            text: row.modelData.name
+            elide: Text.ElideMiddle
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
-            font.family: island.fontFamily
-            font.pixelSize: island.f(14)
-            color: modelData.isDir ? island.accentColor : island.fgDim
+            font.family: island ? island.textFamily : "sans-serif"
+            font.pixelSize: island ? island.f(12) : 12
+            font.weight: Font.Medium
+            color: island ? island.fg : "#F7E8B2"
           }
 
           Text {
-            text: modelData.name
+            width: parent.width
+            text: view.prettyDir(row.modelData.path)
+            elide: Text.ElideMiddle
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
-            font.family: island.textFamily
-            font.pixelSize: island.f(12)
-            font.weight: Font.Medium
-            color: island.fg
-            elide: Text.ElideMiddle
-            width: island.s(220)
+            font.family: island ? island.textFamily : "sans-serif"
+            font.pixelSize: island ? island.f(10) : 10
+            color: Util.alpha(island ? island.fg : "#F7E8B2", 0.34)
           }
         }
 
-        // Action Buttons
         Row {
+          id: actions
           anchors.right: parent.right
-          anchors.rightMargin: island.s(8)
+          anchors.rightMargin: island ? island.s(6) : 6
           anchors.verticalCenter: parent.verticalCenter
-          spacing: island.s(6)
+          spacing: island ? island.s(2) : 2
+          opacity: row.hot ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: 120 } }
 
-          // Copy Path
-          Rectangle {
-            width: island.s(22)
-            height: island.s(22)
-            radius: island.s(6)
-            color: copyMouse.containsMouse ? Util.alpha(island.accentColor, 0.25) : Util.alpha(island.fg, 0.08)
-
-            Text {
-              anchors.centerIn: parent
-              text: "󰆏"
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island.fontFamily
-              font.pixelSize: island.f(11)
-              color: copyMouse.containsMouse ? island.accentColor : island.fgDim
-            }
-
-            MouseArea {
-              id: copyMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: view.copyPath(modelData.path)
-            }
+          IconButton {
+            glyph: "󰆏"
+            glyphSize: island ? island.f(13) : 13
+            color: island ? island.fgDim : "#C1C497"
+            fontFamily: island ? island.fontFamily : "sans-serif"
+            onClicked: view.copyPath(row.modelData.path)
           }
 
-          // Open Terminal (if folder or parent)
-          Rectangle {
-            width: island.s(22)
-            height: island.s(22)
-            radius: island.s(6)
-            color: termMouse.containsMouse ? Util.alpha(island.accentColor, 0.25) : Util.alpha(island.fg, 0.08)
-
-            Text {
-              anchors.centerIn: parent
-              text: "󰞷"
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island.fontFamily
-              font.pixelSize: island.f(11)
-              color: termMouse.containsMouse ? island.accentColor : island.fgDim
-            }
-
-            MouseArea {
-              id: termMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: view.openInTerminal(modelData.path, modelData.isDir)
-            }
+          IconButton {
+            glyph: "󰞷"
+            glyphSize: island ? island.f(13) : 13
+            color: island ? island.fgDim : "#C1C497"
+            fontFamily: island ? island.fontFamily : "sans-serif"
+            onClicked: view.openInTerminal(row.modelData.path, row.modelData.isDir)
           }
 
-          // Remove
-          Rectangle {
-            width: island.s(22)
-            height: island.s(22)
-            radius: island.s(6)
-            color: remMouse.containsMouse ? Util.alpha(island.urgentColor, 0.25) : Util.alpha(island.fg, 0.08)
-
-            Text {
-              anchors.centerIn: parent
-              text: "󰅖"
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island.fontFamily
-              font.pixelSize: island.f(10)
-              color: remMouse.containsMouse ? island.urgentColor : island.fgDim
-            }
-
-            MouseArea {
-              id: remMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: view.removeItem(index)
-            }
+          IconButton {
+            glyph: "󰅖"
+            glyphSize: island ? island.f(12) : 12
+            color: island ? island.fgDim : "#C1C497"
+            fontFamily: island ? island.fontFamily : "sans-serif"
+            onClicked: view.removeItem(row.index)
           }
         }
       }

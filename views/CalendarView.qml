@@ -6,12 +6,19 @@ import "../IslandModel.js" as Model
 // Calendar with four modes: Month (grid + selected day), Week (seven
 // columns), 3-Day (yesterday / today / tomorrow) and Today (next meeting +
 // agenda). The add drawer manages feeds and the holiday calendar.
+// Rows lead with the time, then a 2px bar (jade timed, amber all-day).
 Item {
   id: view
 
   property var island: null
   readonly property var cal: island ? island.calendar : null
-  readonly property int pad: island ? island.s(16) : 16
+  readonly property int pad: island ? island.s(18) : 18
+
+  readonly property color fg: island ? island.fg : "#F7E8B2"
+  readonly property color faint: Util.alpha(fg, 0.34)
+  readonly property color hairline: Util.alpha(fg, 0.07)
+  readonly property bool twelveHour: !!(island && island.activeClockFormat && island.activeClockFormat.indexOf("AP") !== -1)
+  readonly property int timeColumn: island ? island.s(twelveHour ? 54 : 40) : 40
 
   // Live current date updated across midnight
   property date currentDate: new Date()
@@ -45,6 +52,25 @@ Item {
   readonly property int firstWeekday: Qt.locale().firstDayOfWeek % 7
   readonly property int leadingBlanks: (new Date(year, monthIndex, 1).getDay() - firstWeekday + 7) % 7
 
+  readonly property date weekStart: {
+    var c = currentDate
+    var diff = (c.getDay() - firstWeekday + 7) % 7
+    return new Date(c.getFullYear(), c.getMonth(), c.getDate() - diff)
+  }
+
+  readonly property string contextLabel: {
+    if (viewMode === "week") {
+      var a = weekStart
+      return rangeText(a, new Date(a.getFullYear(), a.getMonth(), a.getDate() + 6))
+    }
+    if (viewMode === "three-day") {
+      var c = currentDate
+      return rangeText(new Date(c.getFullYear(), c.getMonth(), c.getDate() - 1),
+                       new Date(c.getFullYear(), c.getMonth(), c.getDate() + 1))
+    }
+    return ""
+  }
+
   onVisibleChanged: {
     if (!visible) return
     currentDate = new Date()
@@ -66,8 +92,13 @@ Item {
 
   function timeText(t) {
     if (!t) return ""
-    var fmt = island && island.activeClockFormat && island.activeClockFormat.indexOf("AP") !== -1 ? "h:mm AP" : "HH:mm"
-    return Qt.formatDateTime(new Date(t), fmt)
+    return Qt.formatDateTime(new Date(t), twelveHour ? "h:mm AP" : "HH:mm")
+  }
+
+  // "Nov 2 – 8", or "Oct 30 – Nov 5" across a month boundary
+  function rangeText(a, b) {
+    if (a.getMonth() === b.getMonth()) return Qt.formatDateTime(a, "MMM d") + " – " + b.getDate()
+    return Qt.formatDateTime(a, "MMM d") + " – " + Qt.formatDateTime(b, "MMM d")
   }
 
   // cal.month() spans a week before and two weeks after the month, which
@@ -76,168 +107,282 @@ Item {
     return currentMonthDays[Model.dayKey(targetDate.getTime())] || []
   }
 
-  // ------------------------------------------------------------ Header / Tab Switcher Bar
+  function isPast(ev) {
+    return !ev.allDay && ev.end < currentDate.getTime()
+  }
+
+  // ------------------------------------------------------------ Shared rows
+  // Inline components can't see this file's ids, so they take the view in.
+  component EventRow: Item {
+    id: evRow
+    property var host: null
+    property var ev: ({})
+    property bool compact: false
+    readonly property var isl: host ? host.island : null
+    readonly property bool linked: !!ev.url
+
+    height: isl ? isl.s(compact ? 32 : 36) : 36
+    opacity: host && host.isPast(ev) ? 0.4 : 1
+
+    HoverHandler { id: evHover }
+
+    Rectangle {
+      anchors.fill: parent
+      radius: isl ? isl.s(10) : 10
+      color: Util.alpha(host ? host.fg : "#F7E8B2", evHover.hovered ? 0.045 : 0)
+      Behavior on color { ColorAnimation { duration: 120 } }
+    }
+
+    Text {
+      id: evTime
+      x: isl ? isl.s(compact ? 6 : 8) : 8
+      width: host ? host.timeColumn - (compact ? (isl ? isl.s(6) : 6) : 0) : 40
+      anchors.verticalCenter: parent.verticalCenter
+      text: evRow.ev.allDay ? "All day" : (host ? host.timeText(evRow.ev.start) : "")
+      elide: Text.ElideRight
+      textFormat: Text.PlainText
+      renderType: Text.NativeRendering
+      font.family: isl ? isl.textFamily : "sans-serif"
+      font.pixelSize: isl ? isl.f(evRow.ev.allDay ? 10 : (compact ? 10.5 : 11)) : 11
+      font.features: { "tnum": 1 }
+      color: isl ? isl.fgDim : "#C1C497"
+    }
+
+    Rectangle {
+      id: evBar
+      anchors.left: evTime.right
+      anchors.leftMargin: isl ? isl.s(compact ? 4 : 6) : 6
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.max(2, isl ? isl.s(2) : 2)
+      height: isl ? isl.s(18) : 18
+      radius: width / 2
+      color: evRow.ev.allDay ? (isl ? isl.orangeColor : "#E5C736") : (isl ? isl.accentColor : "#2DD5B7")
+    }
+
+    Text {
+      anchors.left: evBar.right
+      anchors.leftMargin: isl ? isl.s(compact ? 8 : 10) : 10
+      anchors.right: evLink.visible ? evLink.left : parent.right
+      anchors.rightMargin: isl ? isl.s(8) : 8
+      anchors.verticalCenter: parent.verticalCenter
+      text: evRow.ev.title || "Busy"
+      elide: Text.ElideRight
+      textFormat: Text.PlainText
+      renderType: Text.NativeRendering
+      font.family: isl ? isl.textFamily : "sans-serif"
+      font.pixelSize: isl ? isl.f(compact ? 11.5 : 12) : 12
+      font.weight: Font.Medium
+      color: host ? host.fg : "#F7E8B2"
+    }
+
+    Text {
+      id: evLink
+      visible: evRow.linked && !evRow.compact
+      anchors.right: parent.right
+      anchors.rightMargin: isl ? isl.s(10) : 10
+      anchors.verticalCenter: parent.verticalCenter
+      text: "󰏌"
+      textFormat: Text.PlainText
+      renderType: Text.NativeRendering
+      font.family: isl ? isl.fontFamily : "sans-serif"
+      font.pixelSize: isl ? isl.f(12) : 12
+      color: isl ? isl.accentColor : "#2DD5B7"
+      opacity: evHover.hovered ? 1 : 0.7
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: evRow.linked ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: if (evRow.linked && evRow.isl) evRow.isl.openLink(evRow.ev.url)
+    }
+  }
+
+  component FaintNote: Text {
+    property var host: null
+    textFormat: Text.PlainText
+    renderType: Text.NativeRendering
+    font.family: host && host.island ? host.island.textFamily : "sans-serif"
+    font.pixelSize: host && host.island ? host.island.f(11) : 11
+    color: host ? host.faint : "#888888"
+  }
+
+  // ------------------------------------------------------------ Header
   Item {
     id: topNav
     x: view.pad
-    y: island ? island.s(10) : 10
-    width: parent.width - view.pad * 2
+    y: island ? island.s(14) : 14
+    width: parent.width - view.pad - (island ? island.s(14) : 14)
     height: island ? island.s(28) : 28
 
-    // Segmented Mode Switcher: [ Month ] [ Week ] [ 3-Day ] [ Today ]
-    Row {
+    // Segmented mode track
+    Rectangle {
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      spacing: island ? island.s(4) : 4
+      width: tabRow.implicitWidth + (island ? island.s(4) : 4)
+      height: island ? island.s(28) : 28
+      radius: height / 2
+      color: Util.alpha(view.fg, 0.05)
 
-      Repeater {
-        model: [
-          { mode: "month", label: "Month" },
-          { mode: "week", label: "Week" },
-          { mode: "three-day", label: "3-Day" },
-          { mode: "today", label: "Today" }
-        ]
+      Row {
+        id: tabRow
+        anchors.centerIn: parent
+        spacing: island ? island.s(2) : 2
 
-        Rectangle {
-          id: tabBtn
-          required property var modelData
-          readonly property bool active: view.viewMode === modelData.mode
-          width: tabText.implicitWidth + (island ? island.s(18) : 18)
-          height: island ? island.s(24) : 24
-          radius: height / 2
-          color: active
-            ? Util.alpha(island.accentColor, 0.22)
-            : (tabMouse.containsMouse ? Util.alpha(island.fg, 0.08) : "transparent")
-          border.width: active ? 1 : 0
-          border.color: island.accentColor
+        Repeater {
+          model: [
+            { mode: "month", label: "Month" },
+            { mode: "week", label: "Week" },
+            { mode: "three-day", label: "3 Day" },
+            { mode: "today", label: "Today" }
+          ]
 
-          Text {
-            id: tabText
-            anchors.centerIn: parent
-            text: tabBtn.modelData.label
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island ? island.textFamily : "sans-serif"
-            font.pixelSize: island ? island.f(11) : 11
-            font.weight: tabBtn.active ? Font.DemiBold : Font.Normal
-            color: tabBtn.active ? island.accentColor : island.fgDim
-          }
+          Rectangle {
+            id: tabBtn
+            required property var modelData
+            readonly property bool active: view.viewMode === modelData.mode && !view.adding
+            width: tabText.implicitWidth + (island ? island.s(24) : 24)
+            height: island ? island.s(24) : 24
+            radius: height / 2
+            color: active ? Util.alpha(island.accentColor, 0.16)
+              : Util.alpha(view.fg, tabMouse.containsMouse ? 0.06 : 0)
+            Behavior on color { ColorAnimation { duration: 140 } }
 
-          MouseArea {
-            id: tabMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              view.viewMode = tabBtn.modelData.mode
-              if (island) island.calendarAdding = false
+            Text {
+              id: tabText
+              anchors.centerIn: parent
+              text: tabBtn.modelData.label
+              textFormat: Text.PlainText
+              renderType: Text.NativeRendering
+              font.family: island ? island.textFamily : "sans-serif"
+              font.pixelSize: island ? island.f(11) : 11
+              font.weight: tabBtn.active ? Font.DemiBold : Font.Normal
+              color: tabBtn.active ? island.accentColor : island.fgDim
+            }
+
+            MouseArea {
+              id: tabMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                view.viewMode = tabBtn.modelData.mode
+                if (island) island.calendarAdding = false
+              }
             }
           }
         }
       }
     }
 
-    // Right Controls: Add Calendar button
+    // Context: month + chevrons, a date range, or nothing; then add
     Row {
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      spacing: island ? island.s(6) : 6
+      spacing: 0
+
+      Text {
+        visible: !view.adding && (view.viewMode === "month" || view.contextLabel !== "")
+        anchors.verticalCenter: parent.verticalCenter
+        rightPadding: island ? island.s(4) : 4
+        text: view.viewMode === "month"
+          ? Qt.locale().standaloneMonthName(view.monthIndex) + " " + view.year
+          : view.contextLabel
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.textFamily : "sans-serif"
+        font.pixelSize: island ? island.f(12) : 12
+        font.weight: view.viewMode === "month" ? Font.DemiBold : Font.Medium
+        font.features: { "tnum": 1 }
+        color: view.viewMode === "month" ? view.fg : island.fgDim
+      }
+
+      IconButton {
+        visible: view.viewMode === "month" && !view.adding
+        anchors.verticalCenter: parent.verticalCenter
+        glyph: "󰅁"
+        glyphSize: island ? island.f(13) : 13
+        color: island.fgDim
+        fontFamily: island ? island.fontFamily : "sans-serif"
+        onClicked: view.shiftMonth(-1)
+      }
+
+      IconButton {
+        visible: view.viewMode === "month" && !view.adding
+        anchors.verticalCenter: parent.verticalCenter
+        glyph: "󰅂"
+        glyphSize: island ? island.f(13) : 13
+        color: island.fgDim
+        fontFamily: island ? island.fontFamily : "sans-serif"
+        onClicked: view.shiftMonth(1)
+      }
+
+      Rectangle {
+        visible: !view.adding && (view.viewMode === "month" || view.contextLabel !== "")
+        anchors.verticalCenter: parent.verticalCenter
+        width: 1 + (island ? island.s(12) : 12)
+        height: island ? island.s(14) : 14
+        color: "transparent"
+
+        Rectangle {
+          anchors.centerIn: parent
+          width: 1
+          height: parent.height
+          color: view.hairline
+        }
+      }
 
       IconButton {
         anchors.verticalCenter: parent.verticalCenter
         glyph: view.adding ? "󰅖" : "󰐕"
-        glyphSize: island ? island.f(12) : 12
-        color: island.fg
+        glyphSize: island ? island.f(14) : 14
+        color: view.adding ? view.fg : island.fgDim
         fontFamily: island ? island.fontFamily : "sans-serif"
-        onClicked: {
-          if (island) island.calendarAdding = !island.calendarAdding
-        }
+        onClicked: if (island) island.calendarAdding = !island.calendarAdding
       }
     }
   }
 
-  // ------------------------------------------------------------ Main Content Container
+  // ------------------------------------------------------------ Content
   Item {
     id: contentArea
     x: view.pad
-    y: topNav.y + topNav.height + (island ? island.s(8) : 8)
+    y: topNav.y + topNav.height + (island ? island.s(12) : 12)
     width: parent.width - view.pad * 2
-    height: parent.height - y - (island ? island.s(12) : 12)
+    height: parent.height - y - (island ? island.s(18) : 18)
 
-    // ============================================================ MODE 1: MONTH (Dual Pane)
+    // ============================================================ MONTH
     Item {
       id: monthContainer
       visible: view.viewMode === "month" && !view.adding
       anchors.fill: parent
 
-      // Left Column: Month matrix
       Item {
         id: monthPane
         width: island ? island.s(7 * 32) : 224
         height: parent.height
 
-        Item {
-          id: monthHeader
-          width: parent.width
-          height: island ? island.s(24) : 24
-
-          Text {
-            anchors.left: parent.left
-            anchors.leftMargin: island ? island.s(4) : 4
-            anchors.verticalCenter: parent.verticalCenter
-            text: Qt.locale().standaloneMonthName(view.monthIndex) + " " + view.year
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island ? island.textFamily : "sans-serif"
-            font.pixelSize: island ? island.f(13) : 13
-            font.weight: Font.DemiBold
-            color: island.fg
-          }
-
-          Row {
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: island ? island.s(4) : 4
-
-            IconButton {
-              glyph: "󰅁"
-              glyphSize: island ? island.f(11) : 11
-              color: island.fg
-              fontFamily: island ? island.fontFamily : "sans-serif"
-              onClicked: view.shiftMonth(-1)
-            }
-            IconButton {
-              glyph: "󰅂"
-              glyphSize: island ? island.f(11) : 11
-              color: island.fg
-              fontFamily: island ? island.fontFamily : "sans-serif"
-              onClicked: view.shiftMonth(1)
-            }
-          }
-        }
-
         Row {
           id: weekdaysRow
-          y: monthHeader.height + (island ? island.s(4) : 4)
 
           Repeater {
             model: 7
             Text {
               required property int index
               width: island ? island.s(32) : 32
+              height: island ? island.s(18) : 18
               horizontalAlignment: Text.AlignHCenter
               text: Qt.locale().dayName((view.firstWeekday + index) % 7, Locale.NarrowFormat)
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(10) : 10
-              color: island.fgDim
+              color: view.faint
             }
           }
         }
 
         Grid {
-          y: weekdaysRow.y + weekdaysRow.height + (island ? island.s(4) : 4)
+          y: weekdaysRow.height
           columns: 7
 
           Repeater {
@@ -254,16 +399,15 @@ Item {
               readonly property bool busy: !!view.days[Model.dayKey(time)]
 
               width: island ? island.s(32) : 32
-              height: island ? island.s(25) : 25
+              height: island ? island.s(32) : 32
 
               Rectangle {
                 anchors.centerIn: parent
-                width: island ? island.s(22) : 22
+                width: island ? island.s(24) : 24
                 height: width
                 radius: width / 2
-                color: cell.isToday
-                  ? island.accentColor
-                  : (dayMouse.containsMouse ? Util.alpha(island.fg, 0.1) : "transparent")
+                color: cell.isToday ? island.accentColor
+                  : Util.alpha(view.fg, dayMouse.containsMouse ? 0.08 : 0)
                 border.width: cell.isSelected && !cell.isToday ? Math.max(1, island ? island.s(1.5) : 1.5) : 0
                 border.color: island.accentColor
               }
@@ -273,23 +417,24 @@ Item {
                 text: cell.cellDate.getDate()
                 textFormat: Text.PlainText
                 renderType: Text.NativeRendering
-                font.family: island ? island.fontFamily : "sans-serif"
-                font.pixelSize: island ? island.f(11) : 11
-                font.bold: cell.isToday || cell.isSelected
+                font.family: island ? island.textFamily : "sans-serif"
+                font.pixelSize: island ? island.f(11.5) : 11.5
+                font.weight: cell.isToday ? Font.Bold : (cell.isSelected ? Font.DemiBold : Font.Normal)
                 font.features: { "tnum": 1 }
-                color: cell.isToday ? island.surface : island.fg
-                opacity: cell.inMonth ? 1 : 0.3
+                color: cell.isToday ? island.surfaceBottom
+                  : (cell.inMonth ? view.fg : Util.alpha(view.fg, 0.22))
               }
 
               Rectangle {
                 visible: cell.busy
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
-                width: island ? island.s(3.5) : 3.5
+                anchors.bottomMargin: island ? island.s(1) : 1
+                width: island ? island.s(3) : 3
                 height: width
                 radius: width / 2
-                color: cell.isToday ? island.fg : island.orangeColor
-                opacity: cell.inMonth ? 1 : 0.4
+                color: island.orangeColor
+                opacity: cell.inMonth ? 1 : 0.35
               }
 
               MouseArea {
@@ -308,121 +453,63 @@ Item {
         }
       }
 
-      // Right Column: Events for selected day
+      Rectangle {
+        x: monthPane.width + (island ? island.s(19) : 19)
+        y: island ? island.s(4) : 4
+        width: 1
+        height: parent.height - y * 2
+        color: view.hairline
+      }
+
+      // Selected day
       Item {
         anchors.left: monthPane.right
-        anchors.leftMargin: island ? island.s(16) : 16
+        anchors.leftMargin: island ? island.s(32) : 32
         anchors.right: parent.right
         height: parent.height
 
         Text {
           id: selectedDayLabel
-          anchors.top: parent.top
-          text: Qt.formatDateTime(new Date(view.selected), "dddd, d MMMM")
+          x: island ? island.s(8) : 8
+          height: island ? island.s(18) : 18
+          verticalAlignment: Text.AlignVCenter
+          text: Qt.formatDateTime(new Date(view.selected), "ddd, MMM d")
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island ? island.textFamily : "sans-serif"
           font.pixelSize: island ? island.f(12) : 12
           font.weight: Font.DemiBold
-          color: island.fg
+          color: view.fg
         }
 
         ListView {
           anchors.top: selectedDayLabel.bottom
-          anchors.topMargin: island ? island.s(8) : 8
+          anchors.topMargin: island ? island.s(6) : 6
           anchors.bottom: parent.bottom
           anchors.left: parent.left
           anchors.right: parent.right
           clip: true
-          spacing: island ? island.s(4) : 4
           boundsBehavior: Flickable.StopAtBounds
           model: view.dayEvents
 
-          delegate: Rectangle {
-            id: eventItem
+          delegate: EventRow {
             required property var modelData
-            readonly property bool past: !modelData.allDay && modelData.end < Date.now()
             width: ListView.view.width
-            height: island ? island.s(38) : 38
-            radius: island ? island.s(10) : 10
-            color: Util.alpha(island.fg, evMouse.containsMouse ? 0.09 : 0.04)
-            opacity: past ? 0.5 : 1
-
-            Rectangle {
-              x: island ? island.s(8) : 8
-              anchors.verticalCenter: parent.verticalCenter
-              width: island ? island.s(3) : 3
-              height: parent.height - (island ? island.s(14) : 14)
-              radius: width / 2
-              color: eventItem.modelData.allDay ? island.orangeColor : island.accentColor
-            }
-
-            Column {
-              x: island ? island.s(18) : 18
-              anchors.verticalCenter: parent.verticalCenter
-              width: parent.width - x - (island ? island.s(26) : 26)
-              spacing: 1
-
-              Text {
-                width: parent.width
-                text: eventItem.modelData.title || "Busy"
-                elide: Text.ElideRight
-                textFormat: Text.PlainText
-                renderType: Text.NativeRendering
-                font.family: island ? island.textFamily : "sans-serif"
-                font.pixelSize: island ? island.f(11) : 11
-                font.weight: Font.DemiBold
-                color: island.fg
-              }
-
-              Text {
-                text: eventItem.modelData.allDay ? "All day"
-                  : view.timeText(eventItem.modelData.start) + " – " + view.timeText(eventItem.modelData.end)
-                textFormat: Text.PlainText
-                renderType: Text.NativeRendering
-                font.family: island ? island.textFamily : "sans-serif"
-                font.pixelSize: island ? island.f(10) : 10
-                color: island.fgDim
-              }
-            }
-
-            Text {
-              visible: !!eventItem.modelData.url
-              anchors.right: parent.right
-              anchors.rightMargin: island ? island.s(10) : 10
-              anchors.verticalCenter: parent.verticalCenter
-              text: "󰏌"
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island ? island.fontFamily : "sans-serif"
-              font.pixelSize: island ? island.f(12) : 12
-              color: island.accentColor
-            }
-
-            MouseArea {
-              id: evMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: eventItem.modelData.url ? Qt.PointingHandCursor : Qt.ArrowCursor
-              onClicked: if (eventItem.modelData.url && island) island.openLink(eventItem.modelData.url)
-            }
+            host: view
+            ev: modelData
           }
         }
 
-        Text {
+        FaintNote {
           visible: view.dayEvents.length === 0
           anchors.centerIn: parent
-          text: "No events"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island ? island.textFamily : "sans-serif"
-          font.pixelSize: island ? island.f(11) : 11
-          color: island.fgDim
+          host: view
+          text: "Free"
         }
       }
     }
 
-    // ============================================================ MODE 2: WEEK (7 Columns)
+    // ============================================================ WEEK
     Item {
       id: weekContainer
       visible: view.viewMode === "week" && !view.adding
@@ -430,77 +517,102 @@ Item {
 
       Row {
         anchors.fill: parent
-        spacing: island ? island.s(6) : 6
 
         Repeater {
           model: 7
 
-          Rectangle {
+          Item {
             id: weekCol
             required property int index
-            readonly property date colDate: {
-              var curr = view.currentDate
-              var diff = (curr.getDay() - view.firstWeekday + 7) % 7
-              return new Date(curr.getFullYear(), curr.getMonth(), curr.getDate() - diff + index)
-            }
+            readonly property date colDate: new Date(view.weekStart.getFullYear(), view.weekStart.getMonth(), view.weekStart.getDate() + index)
             readonly property bool isToday: Model.dayKey(colDate.getTime()) === Model.dayKey(view.currentDate.getTime())
             readonly property var colEvents: view.eventsForDate(colDate)
 
-            width: (weekContainer.width - 6 * (island ? island.s(6) : 6)) / 7
+            width: weekContainer.width / 7
             height: parent.height
-            radius: island ? island.s(10) : 10
-            color: isToday
-              ? Util.alpha(island.accentColor, 0.08)
-              : Util.alpha(island.fg, 0.03)
-            border.width: isToday ? 1 : 0
-            border.color: Util.alpha(island.accentColor, 0.4)
 
-            // Column Header
             Rectangle {
+              visible: weekCol.index > 0
+              width: 1
+              height: parent.height
+              color: view.hairline
+            }
+
+            Column {
               id: colHead
               width: parent.width
-              height: island ? island.s(26) : 26
-              radius: island ? island.s(10) : 10
-              color: weekCol.isToday ? island.accentColor : "transparent"
+              topPadding: island ? island.s(2) : 2
+              spacing: island ? island.s(3) : 3
 
               Text {
-                anchors.centerIn: parent
-                text: Qt.formatDateTime(weekCol.colDate, "ddd d")
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: Qt.formatDateTime(weekCol.colDate, "ddd").toUpperCase()
                 textFormat: Text.PlainText
                 renderType: Text.NativeRendering
                 font.family: island ? island.textFamily : "sans-serif"
-                font.pixelSize: island ? island.f(10) : 10
-                font.weight: Font.DemiBold
-                color: weekCol.isToday ? island.surface : island.fg
+                font.pixelSize: island ? island.f(9) : 9
+                font.letterSpacing: 0.7
+                color: weekCol.isToday ? island.accentColor : view.faint
+              }
+
+              Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: island ? island.s(24) : 24
+                height: width
+                radius: width / 2
+                color: weekCol.isToday ? island.accentColor : "transparent"
+
+                Text {
+                  anchors.centerIn: parent
+                  text: weekCol.colDate.getDate()
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island ? island.textFamily : "sans-serif"
+                  font.pixelSize: island ? island.f(13) : 13
+                  font.weight: Font.DemiBold
+                  font.features: { "tnum": 1 }
+                  color: weekCol.isToday ? island.surfaceBottom : view.fg
+                }
               }
             }
 
             ListView {
               anchors.top: colHead.bottom
-              anchors.topMargin: island ? island.s(4) : 4
+              anchors.topMargin: island ? island.s(8) : 8
               anchors.bottom: parent.bottom
-              anchors.bottomMargin: island ? island.s(4) : 4
               anchors.left: parent.left
-              anchors.leftMargin: island ? island.s(3) : 3
+              anchors.leftMargin: island ? island.s(4) : 4
               anchors.right: parent.right
-              anchors.rightMargin: island ? island.s(3) : 3
+              anchors.rightMargin: island ? island.s(4) : 4
               clip: true
-              spacing: island ? island.s(3) : 3
+              spacing: island ? island.s(4) : 4
               boundsBehavior: Flickable.StopAtBounds
               model: weekCol.colEvents
 
               delegate: Rectangle {
                 id: weekEv
                 required property var modelData
+                readonly property bool linked: !!modelData.url
                 width: ListView.view.width
                 height: island ? island.s(34) : 34
-                radius: island ? island.s(6) : 6
-                color: Util.alpha(island.fg, wMouse.containsMouse ? 0.12 : 0.06)
+                radius: island ? island.s(7) : 7
+                opacity: view.isPast(modelData) ? 0.4 : 1
+                color: weekCol.isToday
+                  ? Util.alpha(island.accentColor, wMouse.containsMouse ? 0.12 : 0.07)
+                  : Util.alpha(view.fg, wMouse.containsMouse ? 0.08 : 0.04)
+                clip: true
+
+                Rectangle {
+                  width: Math.max(2, island ? island.s(2) : 2)
+                  height: parent.height
+                  color: weekEv.modelData.allDay ? island.orangeColor : island.accentColor
+                }
 
                 Column {
-                  anchors.fill: parent
-                  anchors.margins: island ? island.s(3) : 3
-                  spacing: 1
+                  x: island ? island.s(8) : 8
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: parent.width - x - (island ? island.s(4) : 4)
+                  spacing: island ? island.s(1) : 1
 
                   Text {
                     width: parent.width
@@ -509,9 +621,9 @@ Item {
                     textFormat: Text.PlainText
                     renderType: Text.NativeRendering
                     font.family: island ? island.textFamily : "sans-serif"
-                    font.pixelSize: island ? island.f(9) : 9
-                    font.weight: Font.DemiBold
-                    color: island.fg
+                    font.pixelSize: island ? island.f(10) : 10
+                    font.weight: Font.Medium
+                    color: view.fg
                   }
 
                   Text {
@@ -519,8 +631,9 @@ Item {
                     textFormat: Text.PlainText
                     renderType: Text.NativeRendering
                     font.family: island ? island.textFamily : "sans-serif"
-                    font.pixelSize: island ? island.f(8) : 8
-                    color: island.accentColor
+                    font.pixelSize: island ? island.f(9) : 9
+                    font.features: { "tnum": 1 }
+                    color: island.fgDim
                   }
                 }
 
@@ -528,29 +641,17 @@ Item {
                   id: wMouse
                   anchors.fill: parent
                   hoverEnabled: true
-                  cursorShape: weekEv.modelData.url ? Qt.PointingHandCursor : Qt.ArrowCursor
-                  onClicked: if (weekEv.modelData.url && island) island.openLink(weekEv.modelData.url)
+                  cursorShape: weekEv.linked ? Qt.PointingHandCursor : Qt.ArrowCursor
+                  onClicked: if (weekEv.linked && island) island.openLink(weekEv.modelData.url)
                 }
               }
-            }
-
-            Text {
-              visible: weekCol.colEvents.length === 0
-              anchors.centerIn: parent
-              text: "—"
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island ? island.textFamily : "sans-serif"
-              font.pixelSize: island ? island.f(11) : 11
-              color: island.fgDim
-              opacity: 0.4
             }
           }
         }
       }
     }
 
-    // ============================================================ MODE 3: 3-DAY (Yesterday, Today, Tomorrow)
+    // ============================================================ 3-DAY
     Item {
       id: threeDayContainer
       visible: view.viewMode === "three-day" && !view.adding
@@ -558,215 +659,129 @@ Item {
 
       Row {
         anchors.fill: parent
-        spacing: island ? island.s(8) : 8
+        spacing: island ? island.s(14) : 14
 
         Repeater {
           model: 3
 
-          Rectangle {
+          Item {
             id: threeDayCol
             required property int index
             readonly property date colDate: {
-              var curr = view.currentDate
-              return new Date(curr.getFullYear(), curr.getMonth(), curr.getDate() - 1 + index)
+              var c = view.currentDate
+              return new Date(c.getFullYear(), c.getMonth(), c.getDate() - 1 + index)
             }
             readonly property bool isToday: index === 1
             readonly property var colEvents: view.eventsForDate(colDate)
 
-            width: (threeDayContainer.width - 2 * (island ? island.s(8) : 8)) / 3
+            width: (threeDayContainer.width - 2 * (island ? island.s(14) : 14)) / 3
             height: parent.height
-            radius: island ? island.s(12) : 12
-            color: isToday
-              ? Util.alpha(island.accentColor, 0.08)
-              : Util.alpha(island.fg, 0.03)
-            border.width: isToday ? 1 : 0
-            border.color: Util.alpha(island.accentColor, 0.4)
 
-            // Column Header: Yesterday, Today, Tomorrow
             Item {
               id: tHeader
               width: parent.width
               height: island ? island.s(30) : 30
 
-              Text {
-                anchors.left: parent.left
-                anchors.leftMargin: island ? island.s(10) : 10
+              Row {
+                x: island ? island.s(6) : 6
                 anchors.verticalCenter: parent.verticalCenter
-                text: threeDayCol.index === 0 ? "Yesterday" : (threeDayCol.index === 1 ? "Today" : "Tomorrow")
-                textFormat: Text.PlainText
-                renderType: Text.NativeRendering
-                font.family: island ? island.textFamily : "sans-serif"
-                font.pixelSize: island ? island.f(12) : 12
-                font.weight: Font.DemiBold
-                color: threeDayCol.isToday ? island.accentColor : island.fg
+                spacing: island ? island.s(6) : 6
+
+                Text {
+                  id: dayNum
+                  text: threeDayCol.colDate.getDate()
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island ? island.textFamily : "sans-serif"
+                  font.pixelSize: island ? island.f(16) : 16
+                  font.weight: Font.DemiBold
+                  font.features: { "tnum": 1 }
+                  color: threeDayCol.isToday ? island.accentColor : view.fg
+                }
+
+                Text {
+                  anchors.baseline: dayNum.baseline
+                  text: threeDayCol.isToday ? "Today" : Qt.formatDateTime(threeDayCol.colDate, "ddd")
+                  textFormat: Text.PlainText
+                  renderType: Text.NativeRendering
+                  font.family: island ? island.textFamily : "sans-serif"
+                  font.pixelSize: island ? island.f(11) : 11
+                  color: threeDayCol.isToday ? island.accentColor : island.fgDim
+                }
               }
 
-              Text {
-                anchors.right: parent.right
-                anchors.rightMargin: island ? island.s(10) : 10
-                anchors.verticalCenter: parent.verticalCenter
-                text: Qt.formatDateTime(threeDayCol.colDate, "MMM d")
-                textFormat: Text.PlainText
-                renderType: Text.NativeRendering
-                font.family: island ? island.textFamily : "sans-serif"
-                font.pixelSize: island ? island.f(10) : 10
-                color: island.fgDim
+              Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: threeDayCol.isToday ? Util.alpha(island.accentColor, 0.45) : view.hairline
               }
             }
 
             ListView {
               anchors.top: tHeader.bottom
+              anchors.topMargin: island ? island.s(6) : 6
               anchors.bottom: parent.bottom
-              anchors.bottomMargin: island ? island.s(6) : 6
               anchors.left: parent.left
-              anchors.leftMargin: island ? island.s(6) : 6
               anchors.right: parent.right
-              anchors.rightMargin: island ? island.s(6) : 6
               clip: true
-              spacing: island ? island.s(4) : 4
               boundsBehavior: Flickable.StopAtBounds
               model: threeDayCol.colEvents
 
-              delegate: Rectangle {
-                id: threeEv
+              delegate: EventRow {
                 required property var modelData
                 width: ListView.view.width
-                height: island ? island.s(44) : 44
-                radius: island ? island.s(8) : 8
-                color: Util.alpha(island.fg, tdMouse.containsMouse ? 0.1 : 0.05)
-
-                Rectangle {
-                  x: island ? island.s(6) : 6
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: island ? island.s(3) : 3
-                  height: parent.height - (island ? island.s(14) : 14)
-                  radius: width / 2
-                  color: threeEv.modelData.allDay ? island.orangeColor : island.accentColor
-                }
-
-                Column {
-                  x: island ? island.s(14) : 14
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: parent.width - x - (threeEv.modelData.url ? (island ? island.s(28) : 28) : (island ? island.s(8) : 8))
-                  spacing: 1
-
-                  Text {
-                    width: parent.width
-                    text: threeEv.modelData.title || "Busy"
-                    elide: Text.ElideRight
-                    textFormat: Text.PlainText
-                    renderType: Text.NativeRendering
-                    font.family: island ? island.textFamily : "sans-serif"
-                    font.pixelSize: island ? island.f(11) : 11
-                    font.weight: Font.DemiBold
-                    color: island.fg
-                  }
-
-                  Text {
-                    text: threeEv.modelData.allDay ? "All day"
-                      : view.timeText(threeEv.modelData.start) + " – " + view.timeText(threeEv.modelData.end)
-                    textFormat: Text.PlainText
-                    renderType: Text.NativeRendering
-                    font.family: island ? island.textFamily : "sans-serif"
-                    font.pixelSize: island ? island.f(9) : 9
-                    color: island.fgDim
-                  }
-                }
-
-                Text {
-                  visible: !!threeEv.modelData.url
-                  anchors.right: parent.right
-                  anchors.rightMargin: island ? island.s(8) : 8
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: "󰏌"
-                  textFormat: Text.PlainText
-                  renderType: Text.NativeRendering
-                  font.family: island ? island.fontFamily : "sans-serif"
-                  font.pixelSize: island ? island.f(12) : 12
-                  color: island.accentColor
-                }
-
-                MouseArea {
-                  id: tdMouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: threeEv.modelData.url ? Qt.PointingHandCursor : Qt.ArrowCursor
-                  onClicked: if (threeEv.modelData.url && island) island.openLink(threeEv.modelData.url)
-                }
+                host: view
+                ev: modelData
+                compact: true
               }
-            }
-
-            Text {
-              visible: threeDayCol.colEvents.length === 0
-              anchors.centerIn: parent
-              text: "—"
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island ? island.textFamily : "sans-serif"
-              font.pixelSize: island ? island.f(11) : 11
-              color: island.fgDim
-              opacity: 0.4
             }
           }
         }
       }
     }
 
-    // ============================================================ MODE 4: TODAY (Hero Card + Agenda)
+    // ============================================================ TODAY
     Item {
       id: todayContainer
       visible: view.viewMode === "today" && !view.adding
       anchors.fill: parent
 
-      // Only show hero if the event is actually today
+      // Only show the hero if the next event is actually today
       readonly property var heroEvent: {
         if (!cal || !cal.next) return null
-        var nowKey = Model.dayKey(view.currentDate.getTime())
-        var nextKey = Model.dayKey(cal.next.start)
-        return nowKey === nextKey ? cal.next : null
+        return Model.dayKey(view.currentDate.getTime()) === Model.dayKey(cal.next.start) ? cal.next : null
       }
 
-      // Hero Upcoming Meeting Card
+      readonly property var agenda: {
+        var h = heroEvent
+        if (!h) return view.todayEvents
+        return view.todayEvents.filter(function(e) { return !(e.start === h.start && e.title === h.title) })
+      }
+
       Rectangle {
         id: heroCard
         visible: !!todayContainer.heroEvent
-        anchors.top: parent.top
         width: parent.width
-        height: visible ? (island ? island.s(68) : 68) : 0
-        radius: island ? island.s(12) : 12
-        color: Util.alpha(island.accentColor, 0.12)
-        border.width: 1
-        border.color: Util.alpha(island.accentColor, 0.35)
+        height: visible ? (island ? island.s(76) : 76) : 0
+        radius: island ? island.s(16) : 16
+        color: Util.alpha(island.accentColor, 0.07)
 
-        Row {
-          x: island ? island.s(12) : 12
-          y: island ? island.s(10) : 10
-          spacing: island ? island.s(6) : 6
-
-          Rectangle {
-            width: island ? island.s(6) : 6
-            height: width
-            radius: width / 2
-            anchors.verticalCenter: parent.verticalCenter
-            color: island.accentColor
-          }
+        Column {
+          x: island ? island.s(16) : 16
+          anchors.verticalCenter: parent.verticalCenter
+          width: parent.width - x - (joinPill.visible ? joinPill.width + (island ? island.s(28) : 28) : (island ? island.s(16) : 16))
+          spacing: island ? island.s(2) : 2
 
           Text {
-            text: todayContainer.heroEvent ? ("NEXT  ·  " + Model.untilText(todayContainer.heroEvent.start, view.currentDate.getTime())).toUpperCase() : ""
+            text: todayContainer.heroEvent ? Model.untilText(todayContainer.heroEvent.start, view.currentDate.getTime()) : ""
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
-            font.pixelSize: island ? island.f(10) : 10
+            font.pixelSize: island ? island.f(10.5) : 10.5
             font.weight: Font.DemiBold
             color: island.accentColor
           }
-        }
-
-        Column {
-          x: island ? island.s(12) : 12
-          y: island ? island.s(28) : 28
-          width: parent.width - (todayContainer.heroEvent && todayContainer.heroEvent.url ? (island ? island.s(130) : 130) : (island ? island.s(24) : 24))
-          spacing: 2
 
           Text {
             width: parent.width
@@ -775,44 +790,45 @@ Item {
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
-            font.pixelSize: island ? island.f(13) : 13
+            font.pixelSize: island ? island.f(15) : 15
             font.weight: Font.DemiBold
-            color: island.fg
+            color: view.fg
           }
 
           Text {
-            visible: !!todayContainer.heroEvent
             text: todayContainer.heroEvent ? view.timeText(todayContainer.heroEvent.start) + " – " + view.timeText(todayContainer.heroEvent.end) : ""
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
-            font.pixelSize: island ? island.f(10) : 10
+            font.pixelSize: island ? island.f(11) : 11
+            font.features: { "tnum": 1 }
             color: island.fgDim
           }
         }
 
-        // Join CTA Button
         Rectangle {
-          visible: todayContainer.heroEvent && !!todayContainer.heroEvent.url
+          id: joinPill
+          visible: !!(todayContainer.heroEvent && todayContainer.heroEvent.url)
           anchors.right: parent.right
-          anchors.rightMargin: island ? island.s(12) : 12
+          anchors.rightMargin: island ? island.s(14) : 14
           anchors.verticalCenter: parent.verticalCenter
-          width: joinText.implicitWidth + (island ? island.s(20) : 20)
-          height: island ? island.s(30) : 30
+          width: joinText.implicitWidth + (island ? island.s(30) : 30)
+          height: island ? island.s(32) : 32
           radius: height / 2
-          color: joinMouse.pressed ? Qt.darker(island.accentColor, 1.2)
-            : (joinMouse.containsMouse ? Qt.lighter(island.accentColor, 1.1) : island.accentColor)
+          color: island.accentColor
+          scale: joinMouse.pressed ? 0.95 : (joinMouse.containsMouse ? 1.03 : 1)
+          Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
           Text {
             id: joinText
             anchors.centerIn: parent
-            text: "Join  󰏌"
+            text: "Join"
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
-            font.pixelSize: island ? island.f(11) : 11
+            font.pixelSize: island ? island.f(12) : 12
             font.weight: Font.DemiBold
-            color: island.surface
+            color: island.surfaceBottom
           }
 
           MouseArea {
@@ -825,7 +841,6 @@ Item {
         }
       }
 
-      // Today's Agenda List
       ListView {
         anchors.top: heroCard.visible ? heroCard.bottom : parent.top
         anchors.topMargin: heroCard.visible ? (island ? island.s(8) : 8) : 0
@@ -833,88 +848,22 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         clip: true
-        spacing: island ? island.s(4) : 4
         boundsBehavior: Flickable.StopAtBounds
-        model: view.todayEvents
+        model: todayContainer.agenda
 
-        delegate: Rectangle {
-          id: tdEv
+        delegate: EventRow {
           required property var modelData
           width: ListView.view.width
-          height: island ? island.s(36) : 36
-          radius: island ? island.s(8) : 8
-          color: Util.alpha(island.fg, tdAgendaMouse.containsMouse ? 0.09 : 0.04)
-
-          Rectangle {
-            x: island ? island.s(8) : 8
-            anchors.verticalCenter: parent.verticalCenter
-            width: island ? island.s(3) : 3
-            height: parent.height - (island ? island.s(14) : 14)
-            radius: width / 2
-            color: tdEv.modelData.allDay ? island.orangeColor : island.accentColor
-          }
-
-          Column {
-            x: island ? island.s(18) : 18
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - x - (tdEv.modelData.url ? (island ? island.s(28) : 28) : (island ? island.s(8) : 8))
-            spacing: 1
-
-            Text {
-              width: parent.width
-              text: tdEv.modelData.title || "Busy"
-              elide: Text.ElideRight
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island ? island.textFamily : "sans-serif"
-              font.pixelSize: island ? island.f(11) : 11
-              font.weight: Font.DemiBold
-              color: island.fg
-            }
-
-            Text {
-              text: tdEv.modelData.allDay ? "All day"
-                : view.timeText(tdEv.modelData.start) + " – " + view.timeText(tdEv.modelData.end)
-              textFormat: Text.PlainText
-              renderType: Text.NativeRendering
-              font.family: island ? island.textFamily : "sans-serif"
-              font.pixelSize: island ? island.f(10) : 10
-              color: island.fgDim
-            }
-          }
-
-          Text {
-            visible: !!tdEv.modelData.url
-            anchors.right: parent.right
-            anchors.rightMargin: island ? island.s(10) : 10
-            anchors.verticalCenter: parent.verticalCenter
-            text: "󰏌"
-            textFormat: Text.PlainText
-            renderType: Text.NativeRendering
-            font.family: island ? island.fontFamily : "sans-serif"
-            font.pixelSize: island ? island.f(12) : 12
-            color: island.accentColor
-          }
-
-          MouseArea {
-            id: tdAgendaMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: tdEv.modelData.url ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: if (tdEv.modelData.url && island) island.openLink(tdEv.modelData.url)
-          }
+          host: view
+          ev: modelData
         }
       }
 
-      Text {
+      FaintNote {
         visible: view.todayEvents.length === 0
         anchors.centerIn: parent
-        text: "Nothing today"
-        textFormat: Text.PlainText
-        renderType: Text.NativeRendering
-        font.family: island ? island.textFamily : "sans-serif"
-        font.pixelSize: island ? island.f(11) : 11
-        color: island.fgDim
+        host: view
+        text: "Free today"
       }
     }
 

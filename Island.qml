@@ -163,8 +163,9 @@ Item {
   readonly property color fgDim: Util.alpha(fg, 0.6)
   readonly property color accentColor: activeAccent
   readonly property color urgentColor: activeUrgent
-  readonly property color greenColor: themeColors.color2 || activeAccent
-  readonly property color orangeColor: themeColors.color3 || activeUrgent
+  // colors.toml names its palette (green, orange...); older themes use color0-15
+  readonly property color greenColor: themeColors.color2 || themeColors.green || activeAccent
+  readonly property color orangeColor: themeColors.color3 || themeColors.orange || activeUrgent
   readonly property color outline: blackBackground ? "transparent" : Util.alpha(activeForeground, 0.1)
 
   // Blend in smoothly when idle; enrich into frosted glass when active/expanded
@@ -972,9 +973,11 @@ Item {
   TextMetrics {
     id: idleMetrics
     font.family: root.textFamily || root.fontFamily
-    font.pixelSize: root.f(12)
+    font.pixelSize: root.f(13)
     font.bold: true
-    text: root.formattedClockText + (clocks && clocks.timerActive ? "  00:00" : "")
+    // Room for IdleFace's single indicator: ring + countdown, media meter, or meeting dot
+    text: root.formattedClockText + (clocks && clocks.timerActive ? "    00:00"
+      : ((root.mediaPlaying || (root.calendar && root.calendar.soon)) ? "  ." : ""))
   }
 
   // ------------------------------------------------------------------

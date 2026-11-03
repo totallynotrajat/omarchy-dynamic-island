@@ -7,8 +7,8 @@
 // these; `r` is the corner radius, which for the compact views is half the
 // height so the shape stays a true capsule.
 var sizes = {
-  "idle":          { w: 126, h: 32, r: 16 },
-  "idle-hover":    { w: 138, h: 34, r: 17 },
+  "idle":          { w: 240, h: 26, r: 13 },
+  "idle-hover":    { w: 250, h: 26, r: 13 },
   "hidden":        { w: 0,   h: 32, r: 16 },
   "media":         { w: 300, h: 32, r: 16 },
   "recording":     { w: 232, h: 32, r: 16 },
@@ -69,7 +69,6 @@ function viewFor(state) {
   if (state.hud) return state.hud.layout === "progress" ? "hud-progress"
     : (state.hud.layout === "track" ? "hud-track"
       : (state.hud.layout === "toast" ? "hud-toast" : "hud-label"))
-  if (state.primary) return state.primary
   if (state.idleHidden) return "hidden"
   return state.hovered ? "idle-hover" : "idle"
 }

@@ -44,7 +44,7 @@ Item {
   readonly property bool blackBackground: setting("background", "theme") === "black"
   readonly property bool idleHidden: setting("idle", "pill") === "hidden"
   readonly property real scaleFactor: Math.max(0.6, Math.min(2, Number(setting("scale", 1)) || 1))
-  readonly property int topMargin: notch ? 0 : s(Number(setting("topMargin", 6)))
+  readonly property int topMargin: 0
   readonly property bool reserveSpace: setting("reserveSpace", true) !== false
   readonly property string monitorSetting: String(setting("monitor", "primary"))
   readonly property bool expandOnHover: setting("expandOnHover", false) === true
@@ -895,6 +895,10 @@ Item {
     precision: SystemClock.Minutes
   }
 
+  readonly property string defaultClockText: {
+    return Qt.formatDateTime(idleClock.date, "ddd d MMM h:mm AP")
+  }
+
   readonly property var idleItems: {
     var items = []
     var ampm = clockFormat.indexOf("AP") !== -1
@@ -934,7 +938,7 @@ Item {
     font.family: root.fontFamily
     font.pixelSize: root.f(12)
     font.bold: true
-    text: root.idleItem ? root.idleItem.text : ""
+    text: root.defaultClockText + (root.clocks.timerActive ? "    " + root.clocks.focusRemainingText : "")
   }
 
   // ------------------------------------------------------------------
@@ -1076,15 +1080,14 @@ Item {
     var v = Model.sizeFor(view, viewCounts, notchSize)
     // The resting pill grows to fit what the ticker is showing, so the
     // island breathes a little as the glances change.
-    if ((view === "idle" || view === "idle-hover") && (idleFace === "ticker" || idleFace === "clock")) {
-      var unit = Style.spacing.scale * scaleFactor
-      var needed = Math.ceil(idleMetrics.advanceWidth / unit) + 44 + (view === "idle-hover" ? 12 : 0)
-      return { w: Math.min(260, Math.max(v.w, needed)), h: v.h, r: v.r }
+    if (view === "idle" || view === "idle-hover") {
+      var needed = Math.ceil(idleMetrics.advanceWidth) + root.s(28)
+      return { w: Math.max(220, needed), h: 26, r: 13 }
     }
     return v
   }
   function slotSize(name) { return Model.sizeFor(name, viewCounts, notchSize) }
-  readonly property bool showBubble: secondary !== "" && !userExpanded && hud === null
+  readonly property bool showBubble: false
 
   function showHud(next) {
     hud = next
@@ -1419,14 +1422,12 @@ Item {
       window: win
       targetScreen: root.targetScreen
     }
-    anchors { top: true; left: true; right: true }
-    // Tall enough for the biggest view (a full inbox or output list); only
-    // the island itself takes input, the rest of the strip is click-through.
-    implicitHeight: root.s(360) + root.topMargin
+    anchors { top: true; bottom: true; left: true; right: true }
+    margins { top: -26 }
     color: "transparent"
 
     WlrLayershell.namespace: "dynamic-island"
-    WlrLayershell.layer: root.setting("layer", "top") === "overlay" ? WlrLayer.Overlay : WlrLayer.Top
+    WlrLayershell.layer: WlrLayer.Overlay
     // Keyboard only while the calendar's link field is up (typing and
     // Ctrl+V go straight in; Esc hands it back). Otherwise the island never
     // takes focus from the app you're in.
@@ -1443,7 +1444,6 @@ Item {
 
     mask: Region {
       item: island
-      Region { item: bubble; intersection: Intersection.Combine }
     }
 
     Item {
@@ -1456,9 +1456,9 @@ Item {
       property real h: root.s(root.viewSize.h)
       property real r: root.s(root.viewSize.r)
 
-      Behavior on w { SpringAnimation { spring: 3.4; damping: 0.28; mass: 1.0; epsilon: 0.25 } }
-      Behavior on h { SpringAnimation { spring: 3.4; damping: 0.32; mass: 1.0; epsilon: 0.25 } }
-      Behavior on r { SpringAnimation { spring: 3.4; damping: 0.32; mass: 1.0; epsilon: 0.25 } }
+      Behavior on w { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+      Behavior on h { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+      Behavior on r { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
       readonly property real earSize: root.s(9)
 

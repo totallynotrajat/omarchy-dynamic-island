@@ -71,7 +71,7 @@ Item {
         font.pixelSize: island ? island.f(11) : 11
         font.weight: Font.DemiBold
         color: view.timer || view.stopwatch ? view.tone : island.fgDim
-        Behavior on color { ColorAnimation { duration: 200 } }
+        Behavior on color { ColorAnimation { duration: 140 } }
       }
 
       Row {
@@ -222,7 +222,7 @@ Item {
       color: view.timer ? view.tone : (island ? island.accentColor : "#2DD5B7")
       scale: playMouse.pressed ? 0.92 : (playMouse.containsMouse ? 1.04 : 1)
       Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-      Behavior on color { ColorAnimation { duration: 200 } }
+      Behavior on color { ColorAnimation { duration: 140 } }
 
       Text {
         anchors.centerIn: parent

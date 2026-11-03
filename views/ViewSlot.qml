@@ -20,10 +20,10 @@ Item {
   visible: opacity > 0.01
   enabled: active
 
-  Behavior on opacity { NumberAnimation { duration: slot.active ? 200 : 120 } }
+  Behavior on opacity { NumberAnimation { duration: slot.active ? 140 : 80 } }
   Behavior on scale {
     NumberAnimation {
-      duration: slot.active ? 240 : 110
+      duration: slot.active ? 170 : 80
       easing.type: slot.active ? Easing.OutBack : Easing.InCubic
       easing.overshoot: 1.05
     }

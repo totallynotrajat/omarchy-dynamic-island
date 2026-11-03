@@ -53,13 +53,13 @@ Item {
   SequentialAnimation {
     id: turn
     ParallelAnimation {
-      NumberAnimation { target: current; property: "y"; to: -current.implicitHeight; duration: 240; easing.type: Easing.InCubic }
-      NumberAnimation { target: current; property: "opacity"; to: 0; duration: 200 }
+      NumberAnimation { target: current; property: "y"; to: -current.implicitHeight; duration: 150; easing.type: Easing.InCubic }
+      NumberAnimation { target: current; property: "opacity"; to: 0; duration: 120 }
       SequentialAnimation {
-        PauseAnimation { duration: 120 }
+        PauseAnimation { duration: 50 }
         ParallelAnimation {
-          NumberAnimation { target: incoming; property: "y"; from: flip.height; to: flip.restY; duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.3 }
-          NumberAnimation { target: incoming; property: "opacity"; from: 0; to: 1; duration: 260 }
+          NumberAnimation { target: incoming; property: "y"; from: flip.height; to: flip.restY; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 1.3 }
+          NumberAnimation { target: incoming; property: "opacity"; from: 0; to: 1; duration: 160 }
         }
       }
     }

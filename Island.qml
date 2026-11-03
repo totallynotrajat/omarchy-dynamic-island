@@ -45,6 +45,9 @@ Item {
   readonly property bool idleHidden: setting("idle", "pill") === "hidden"
   readonly property real scaleFactor: Math.max(0.6, Math.min(2, Number(setting("scale", 1)) || 1))
   readonly property int topMargin: notch ? 0 : s(Number(setting("topMargin", 6)))
+  // Notch style: satellites start below the resting notch's lip, which is
+  // just past the bar's bottom edge. The floating capsule already sits lower.
+  readonly property real satelliteTop: notch ? s(Model.sizes["idle"].h + 6) : s(12)
   readonly property bool reserveSpace: setting("reserveSpace", true) !== false
   readonly property string monitorSetting: String(setting("monitor", "primary"))
   readonly property bool expandOnHover: setting("expandOnHover", false) === true
@@ -153,10 +156,10 @@ Item {
   property color activeAccent: Color.accent
   property color activeUrgent: Color.urgent
 
-  Behavior on activeBackground { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
-  Behavior on activeForeground { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
-  Behavior on activeAccent { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
-  Behavior on activeUrgent { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
+  Behavior on activeBackground { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+  Behavior on activeForeground { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+  Behavior on activeAccent { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+  Behavior on activeUrgent { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
   readonly property color surface: blackBackground ? "#000000" : activeBackground
   readonly property color fg: blackBackground ? "#f5f5f7" : activeForeground
@@ -181,8 +184,8 @@ Item {
 
   property color surfaceTop: rawSurfaceTop
   property color surfaceBottom: rawSurfaceBottom
-  Behavior on surfaceTop { ColorAnimation { duration: 380; easing.type: Easing.InOutCubic } }
-  Behavior on surfaceBottom { ColorAnimation { duration: 380; easing.type: Easing.InOutCubic } }
+  Behavior on surfaceTop { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+  Behavior on surfaceBottom { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
   function bodyAt(t) {
     var a = surfaceTop, b = surfaceBottom
@@ -194,7 +197,7 @@ Item {
     : Util.alpha(activeForeground, blackBackground ? 0.08 : 0.12)
 
   property color rim: rawRim
-  Behavior on rim { ColorAnimation { duration: 380; easing.type: Easing.InOutCubic } }
+  Behavior on rim { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
   // Numbers, time and icons in the theme's (Nerd) monospace; words in iA
   // Writer Quattro, which Omarchy ships and which sits well beside a mono.
   // "textFont": "theme" keeps everything in the theme font.
@@ -1441,8 +1444,12 @@ Item {
     // Ctrl+V go straight in; Esc hands it back). Otherwise the island never
     // takes focus from the app you're in.
     WlrLayershell.keyboardFocus: root.calendarTyping ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    exclusionMode: root.reserveSpace ? ExclusionMode.Normal : ExclusionMode.Ignore
-    exclusiveZone: root.reserveSpace ? root.s(32) + root.topMargin : 0
+    // The notch ignores the bar's exclusive zone so it sits at y = 0, inside
+    // the bar, flush with the screen edge. Never bind exclusiveZone here:
+    // Quickshell flips exclusionMode back to Normal whenever it is set, and
+    // Hyprland then stacks the window under the bar. Reserving space is the
+    // job of the separate `reserver` window below.
+    exclusionMode: root.notch ? ExclusionMode.Ignore : ExclusionMode.Normal
 
     // Esc always hands the keyboard back, wherever focus is inside.
     Shortcut {
@@ -1464,16 +1471,20 @@ Item {
 
       // The spring: each dimension chases the current view's target with a
       // little overshoot, which is most of what makes it feel like iOS.
+      // Qt's damping is velocity bled off per 16ms tick, so a higher value
+      // is slower (overdamped creep), not snappier. 9.5 / 0.54 reaches 90%
+      // in ~115ms, overshoots ~1% and settles by ~240ms (measured with
+      // QtQuick's own SpringAnimation; 3.5 / 0.82 took ~1.3s to settle).
       property real w: root.s(root.viewSize.w)
       property real h: root.s(root.viewSize.h)
       property real r: root.s(root.viewSize.r)
 
-      Behavior on w { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
-      Behavior on h { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
-      Behavior on r { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+      Behavior on w { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
+      Behavior on h { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
+      Behavior on r { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
 
       property real earSize: root.isIdleState ? root.s(4) : root.s(18)
-      Behavior on earSize { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+      Behavior on earSize { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
       // Notch style: the body and its two concave "ears" (the fillets that
       // blend it into the screen edge) are one continuous outline, so there
@@ -1566,7 +1577,7 @@ Item {
         visible: opacity > 0.01
         property real breath: 0.5
 
-        Behavior on opacity { NumberAnimation { duration: 700; easing.type: Easing.InOutSine } }
+        Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
         SequentialAnimation on breath {
           running: glow.lit
@@ -1603,8 +1614,8 @@ Item {
         scale: islandPress.pressed ? 0.965 : 1
         transformOrigin: Item.Top
 
-        Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
-        Behavior on opacity { NumberAnimation { duration: 160 } }
+        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+        Behavior on opacity { NumberAnimation { duration: 110 } }
 
         HoverHandler { id: islandHover }
 
@@ -1822,9 +1833,9 @@ Item {
         visible: opacity > 0.01
         clip: true
 
-        Behavior on x { SpringAnimation { spring: 3.4; damping: 0.3; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: 200 } }
-        Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutBack } }
+        Behavior on x { SpringAnimation { spring: 9.5; damping: 0.45; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: 130 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
 
         BubbleContent {
           anchors.fill: parent
@@ -1852,17 +1863,19 @@ Item {
         height: leftCol.implicitHeight
 
         x: root.snap(island.x - root.s(44) - root.s(16))
-        y: root.snap(island.y + Math.max(root.s(12), (island.height - height) / 2))
+        // Centered on the body, but never above the bar: the notch now sits
+        // at y = 0, so the old 12px floor put the top button over the bar.
+        y: root.snap(island.y + Math.max(root.satelliteTop, (island.height - height) / 2))
 
         opacity: root.userExpanded ? 1 : 0
         scale: root.userExpanded ? 1 : 0.8
         visible: opacity > 0.01
         enabled: root.userExpanded
 
-        // Synchronous tracking without lag
-        Behavior on y { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+        // Tracks the island body on the same spring
+        Behavior on y { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
 
         HoverHandler {
           onHoveredChanged: root.leftSatHovered = hovered
@@ -1929,17 +1942,19 @@ Item {
         height: rightCol.implicitHeight
 
         x: root.snap(island.x + island.width + root.s(16))
-        y: root.snap(island.y + Math.max(root.s(12), (island.height - height) / 2))
+        // Centered on the body, but never above the bar: the notch now sits
+        // at y = 0, so the old 12px floor put the top button over the bar.
+        y: root.snap(island.y + Math.max(root.satelliteTop, (island.height - height) / 2))
 
         opacity: root.userExpanded ? 1 : 0
         scale: root.userExpanded ? 1 : 0.8
         visible: opacity > 0.01
         enabled: root.userExpanded
 
-        // Synchronous tracking without lag
-        Behavior on y { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+        // Tracks the island body on the same spring
+        Behavior on y { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
 
         HoverHandler {
           onHoveredChanged: root.rightSatHovered = hovered
@@ -1990,5 +2005,26 @@ Item {
         }
       }
     }
+  }
+
+  // reserveSpace: a separate, invisible, click-through strip that only holds
+  // the exclusive zone, so the island window itself can ignore exclusion and
+  // stay flush with the screen edge. It must be on Overlay: Hyprland lays out
+  // exclusive zones layer by layer, and on Bottom it would claim y = 0 ahead
+  // of the bar (Top) and push the bar down. On Overlay it lands under the
+  // bar, so tiled windows start below both.
+  PanelWindow {
+    id: reserver
+    screen: root.targetScreen
+    visible: root.reserveSpace && screenRecovery.ready
+    anchors { top: true; left: true; right: true }
+    implicitHeight: 1
+    color: "transparent"
+    mask: Region {}
+    WlrLayershell.namespace: "dynamic-island-reserve"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    exclusionMode: ExclusionMode.Normal
+    exclusiveZone: root.s(32) + root.topMargin
   }
 }

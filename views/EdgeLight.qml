@@ -31,8 +31,8 @@ Item {
     onRunningChanged: if (!running) edge.breath = 1
   }
 
-  Behavior on level { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
-  Behavior on tone { ColorAnimation { duration: 450 } }
+  Behavior on level { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+  Behavior on tone { ColorAnimation { duration: 200 } }
 
   // Glow: bright in the middle, gone at the ends.
   Rectangle {
@@ -72,7 +72,7 @@ Item {
         GradientStop { position: 1.0; color: edge.tone }
       }
 
-      Behavior on width { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+      Behavior on width { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
     }
   }
 

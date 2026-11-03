@@ -483,6 +483,7 @@ Item {
         }
 
         ListView {
+          id: dayAgenda
           anchors.top: selectedDayLabel.bottom
           anchors.topMargin: island ? island.s(6) : 6
           anchors.bottom: parent.bottom
@@ -498,6 +499,12 @@ Item {
             host: view
             ev: modelData
           }
+        }
+
+        ListFade {
+          flick: dayAgenda
+          tone: island ? island.surfaceBottom : "black"
+          size: island ? island.s(18) : 18
         }
 
         FaintNote {
@@ -577,6 +584,7 @@ Item {
             }
 
             ListView {
+              id: weekAgenda
               anchors.top: colHead.bottom
               anchors.topMargin: island ? island.s(8) : 8
               anchors.bottom: parent.bottom
@@ -645,6 +653,12 @@ Item {
                   onClicked: if (weekEv.linked && island) island.openLink(weekEv.modelData.url)
                 }
               }
+            }
+
+            ListFade {
+              flick: weekAgenda
+              tone: island ? island.surfaceBottom : "black"
+              size: island ? island.s(18) : 18
             }
           }
         }
@@ -719,6 +733,7 @@ Item {
             }
 
             ListView {
+              id: threeDayAgenda
               anchors.top: tHeader.bottom
               anchors.topMargin: island ? island.s(6) : 6
               anchors.bottom: parent.bottom
@@ -735,6 +750,12 @@ Item {
                 ev: modelData
                 compact: true
               }
+            }
+
+            ListFade {
+              flick: threeDayAgenda
+              tone: island ? island.surfaceBottom : "black"
+              size: island ? island.s(18) : 18
             }
           }
         }
@@ -842,6 +863,7 @@ Item {
       }
 
       ListView {
+        id: todayAgenda
         anchors.top: heroCard.visible ? heroCard.bottom : parent.top
         anchors.topMargin: heroCard.visible ? (island ? island.s(8) : 8) : 0
         anchors.bottom: parent.bottom
@@ -857,6 +879,12 @@ Item {
           host: view
           ev: modelData
         }
+      }
+
+      ListFade {
+        flick: todayAgenda
+        tone: island ? island.surfaceBottom : "black"
+        size: island ? island.s(18) : 18
       }
 
       FaintNote {
@@ -918,6 +946,12 @@ Item {
             }
           }
         }
+      }
+
+      ListFade {
+        flick: countries
+        tone: island ? island.surfaceBottom : "black"
+        size: island ? island.s(18) : 18
       }
 
       // --- add / remove calendars

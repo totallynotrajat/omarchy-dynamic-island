@@ -309,4 +309,10 @@ Item {
       }
     }
   }
+
+  ListFade {
+    flick: list
+    tone: island ? island.surfaceBottom : "black"
+    size: island ? island.s(18) : 18
+  }
 }

@@ -86,7 +86,7 @@ Item {
     spacing: island ? island.s(3) : 3
     z: 0
     opacity: island && island.mediaPlaying ? 1 : 0.3
-    Behavior on opacity { NumberAnimation { duration: 300 } }
+    Behavior on opacity { NumberAnimation { duration: 160 } }
 
     Repeater {
       id: bgBars

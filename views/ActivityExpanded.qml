@@ -122,7 +122,7 @@ Item {
         width: parent.width * (view.item ? Math.max(0, view.item.progress) : 0)
         color: view.tone
 
-        Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
       }
     }
   }

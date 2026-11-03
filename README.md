@@ -17,7 +17,7 @@ backlight, and `gpu-screen-recorder` for recording.
 
 | State | Looks like |
 |---|---|
-| Idle | A glance ticker: every few seconds the next of the time, date, battery, next meeting, today's festival or "Silenced" flips in like a split-flap board, and the pill resizes to fit |
+| Idle | The resting clock, with a countdown beside it while a timer runs and small media or meeting marks when they apply. Right-click to cycle clock formats |
 | Music playing | Cover art on the left, the song and artist scrolling through the middle, a live equalizer on the right. When paused it stays on the same player, with the text stopped and dimmed |
 | Screen recording | Pulsing record dot, `REC`, and the running time |
 | Microphone / camera in use | Mic glyph and an orange dot; for the camera, a camera glyph and a green dot |
@@ -132,7 +132,7 @@ apply as soon as you save the file.
 | `monitor` | `"primary"` | `"primary"`, `"focused"`, or a monitor name like `"eDP-1"` |
 | `layer` | `"top"` | `"overlay"` keeps it above fullscreen windows |
 | `expandOnHover` | `false` | Open on hover instead of on click |
-| `clockFormat` | `"h:mm AP"` | Qt date format for the expanded clock |
+| `clockFormat` | `"dddd HH:mm"` | Qt date format for the resting clock (`ww` = ISO week); right-click the resting island to cycle formats |
 | `mediaLingerSeconds` | `30` | How long a paused track stays in the island |
 | `notchWidth`, `notchHeight`, `notchRadius` | `0` | Fit a real display cutout: see below |
 | `visualizerColor` | `"accent"` | `"artwork"` colors the equalizer and glow from the album cover |

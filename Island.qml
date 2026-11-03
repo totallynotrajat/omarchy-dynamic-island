@@ -962,45 +962,11 @@ Item {
   }
 
   // ------------------------------------------------------------------
-  // Idle face: the glance ticker on the resting island.
+  // Idle face: the resting clock and the width it needs.
   // ------------------------------------------------------------------
   SystemClock {
     id: idleClock
     precision: SystemClock.Minutes
-  }
-
-  readonly property var idleItems: {
-    var items = []
-    var ampm = clockFormat.indexOf("AP") !== -1
-    // Qt only gives 12-hour "h" when AM/PM is in the same format, so format
-    // with it and drop the suffix: "10:57", not "22:57".
-    var time = ampm ? Qt.formatDateTime(idleClock.date, "h:mm AP").replace(/\s*[AaPp][Mm]$/, "")
-                    : Qt.formatDateTime(idleClock.date, "HH:mm")
-    items.push({ key: "time", text: time })
-    if (idleFace === "clock") return items
-    items.push({ key: "date", text: Qt.formatDateTime(idleClock.date, "ddd d") })
-    if (hasBattery)
-      items.push({ key: "battery", text: Model.batteryIcon(batteryLevel, charging) + " " + Model.percentText(batteryLevel),
-                   color: charging ? greenColor : (batteryLevel <= 0.2 ? urgentColor : "") })
-    var next = calendar.next
-    if (next && next.start - idleClock.date.getTime() < 12 * 3600000 && next.start > idleClock.date.getTime())
-      items.push({ key: "event", text: "󰃭 " + Model.untilText(next.start, idleClock.date.getTime()), color: accentColor })
-    var festivals = calendar.todayAllDay
-    if (festivals.length > 0) items.push({ key: "festival", text: festivals[0], color: orangeColor })
-    if (notifications.doNotDisturb) items.push({ key: "dnd", text: "󰂛 Silenced", color: orangeColor })
-    return items
-  }
-
-  property int idleIndex: 0
-  readonly property var idleItem: idleItems.length > 0 ? idleItems[idleIndex % idleItems.length] : null
-
-  // Flip to the next glance every few seconds, but only while the island
-  // is actually resting (no point animating under a live activity).
-  Timer {
-    interval: 5000
-    repeat: true
-    running: root.idleFace === "ticker" && (root.view === "idle" || root.view === "idle-hover") && root.idleItems.length > 1
-    onTriggered: root.idleIndex = (root.idleIndex + 1) % root.idleItems.length
   }
 
   TextMetrics {

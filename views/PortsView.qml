@@ -11,6 +11,11 @@ Item {
   property var portsList: []
   property string lastRaw: ""
   property string statusMessage: ""
+  readonly property string home: Quickshell.env("HOME") || ""
+
+  function shortDir(d) {
+    return home && d.indexOf(home) === 0 ? "~" + d.slice(home.length) : d
+  }
 
   function refresh() {
     portScanner.running = false
@@ -20,7 +25,7 @@ Item {
   Process {
     id: portScanner
     running: true
-    command: ["python3", Qt.resolvedUrl("../sources/smart-port-scanner.py").replace(/^file:\/\//, "")]
+    command: ["python3", Qt.resolvedUrl("../sources/smart-port-scanner.py").toString().replace(/^file:\/\//, "")]
     stdout: StdioCollector {
       onStreamFinished: {
         var raw = String(text || "").trim()
@@ -48,14 +53,12 @@ Item {
 
   function openBrowser(port) {
     Quickshell.execDetached(["xdg-open", "http://localhost:" + port])
-    view.statusMessage = "Opening http://localhost:" + port
-    msgTimer.restart()
   }
 
   function killProcess(pid, port) {
     if (pid && pid !== "-") {
       Quickshell.execDetached(["kill", "-15", pid])
-      view.statusMessage = "Sent SIGTERM to PID " + pid + " (:" + port + ")"
+      view.statusMessage = "Stopped :" + port
       msgTimer.restart()
       refreshTimer.restart()
     }
@@ -105,13 +108,13 @@ Item {
       }
 
       Text {
-        text: "Port Watcher"
+        text: "Ports"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island ? island.textFamily : "sans-serif"
         font.pixelSize: island ? island.f(13) : 13
         font.weight: Font.DemiBold
-        color: island ? island.fg : "#ffffff"
+        color: island ? island.fg : "#F7E8B2"
       }
 
       Rectangle {
@@ -124,7 +127,7 @@ Item {
         Text {
           id: countText
           anchors.centerIn: parent
-          text: String(view.portsList.length) + " active"
+          text: String(view.portsList.length)
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island ? island.fontFamily : "sans-serif"
@@ -142,7 +145,7 @@ Item {
       width: island ? island.s(26) : 26
       height: width
       radius: width / 2
-      color: refMouse.containsMouse ? Util.alpha(island ? island.fg : "#ffffff", 0.15) : "transparent"
+      color: refMouse.containsMouse ? Util.alpha(island ? island.fg : "#F7E8B2", 0.15) : "transparent"
 
       Text {
         anchors.centerIn: parent
@@ -172,36 +175,16 @@ Item {
     width: parent.width - view.pad * 2
     height: parent.height - y - view.pad - (view.statusMessage !== "" ? (island ? island.s(20) : 20) : 0)
 
-    // Empty State
-    Item {
-      anchors.fill: parent
+    Text {
       visible: view.portsList.length === 0
-
-      Column {
-        anchors.centerIn: parent
-        spacing: island ? island.s(4) : 4
-
-        Text {
-          anchors.horizontalCenter: parent.horizontalCenter
-          text: "No active dev servers"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island ? island.textFamily : "sans-serif"
-          font.pixelSize: island ? island.f(12) : 12
-          color: island ? island.fgDim : "#888888"
-        }
-
-        Text {
-          anchors.horizontalCenter: parent.horizontalCenter
-          text: "Start a server on :3000, :8080 to monitor here"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island ? island.textFamily : "sans-serif"
-          font.pixelSize: island ? island.f(10) : 10
-          color: island ? island.fgDim : "#888888"
-          opacity: 0.6
-        }
-      }
+      anchors.centerIn: parent
+      text: "No listening ports"
+      textFormat: Text.PlainText
+      renderType: Text.NativeRendering
+      font.family: island ? island.textFamily : "sans-serif"
+      font.pixelSize: island ? island.f(11) : 11
+      color: island ? island.fgDim : "#F7E8B2"
+      opacity: 0.7
     }
 
     // Port Rows
@@ -221,25 +204,26 @@ Item {
 
         width: list.width
         height: island ? island.s(40) : 40
-        radius: island ? island.s(8) : 8
-        color: Util.alpha(island ? island.surfaceTop : "#111C18", 0.6)
-        border.width: 1
-        border.color: Util.alpha(island ? island.rim : "#ffffff", 0.6)
+        radius: island ? island.s(10) : 10
+        color: Util.alpha(island ? island.fg : "#F7E8B2", rowHover.hovered ? 0.08 : 0.04)
+
+        HoverHandler { id: rowHover }
 
         Row {
           anchors.left: parent.left
+          anchors.right: actions.left
+          anchors.rightMargin: island ? island.s(8) : 8
           anchors.leftMargin: island ? island.s(8) : 8
           anchors.verticalCenter: parent.verticalCenter
           spacing: island ? island.s(8) : 8
 
-          // Port chip
+          // Port chip, with a minimum width so names line up
           Rectangle {
-            width: portLabel.implicitWidth + (island ? island.s(10) : 10)
+            id: portChip
+            width: Math.max(island ? island.s(52) : 52, portLabel.implicitWidth + (island ? island.s(12) : 12))
             height: island ? island.s(22) : 22
-            radius: island ? island.s(6) : 6
-            color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.18)
-            border.width: 1
-            border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.35)
+            radius: height / 2
+            color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.16)
             anchors.verticalCenter: parent.verticalCenter
 
             Text {
@@ -259,30 +243,31 @@ Item {
           // Process Name & Directory
           Column {
             anchors.verticalCenter: parent.verticalCenter
-            width: island ? island.s(170) : 170
+            width: parent.width - portChip.width - parent.spacing
             spacing: 1
 
             Text {
               width: parent.width
-              text: portDelegate.modelData.process + (portDelegate.modelData.pid !== "-" ? " · " + portDelegate.modelData.pid : "")
+              text: portDelegate.modelData.process
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(11) : 11
               font.weight: Font.DemiBold
-              color: island ? island.fg : "#ffffff"
+              color: island ? island.fg : "#F7E8B2"
               elide: Text.ElideRight
             }
 
             Text {
-              visible: portDelegate.modelData.dir !== ""
+              visible: text !== ""
               width: parent.width
-              text: portDelegate.modelData.dir
+              text: [view.shortDir(portDelegate.modelData.dir), portDelegate.modelData.pid !== "-" ? portDelegate.modelData.pid : ""]
+                .filter(function(t) { return t }).join("  ·  ")
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(9) : 9
-              color: island ? island.fgDim : "#888888"
+              color: island ? island.fgDim : "#F7E8B2"
               elide: Text.ElideMiddle
             }
           }
@@ -290,6 +275,7 @@ Item {
 
         // Action Buttons
         Row {
+          id: actions
           anchors.right: parent.right
           anchors.rightMargin: island ? island.s(8) : 8
           anchors.verticalCenter: parent.verticalCenter
@@ -297,22 +283,18 @@ Item {
 
           // Open in Browser Button
           Rectangle {
-            width: openText.implicitWidth + (island ? island.s(12) : 12)
-            height: island ? island.s(24) : 24
-            radius: island ? island.s(6) : 6
-            color: openMouse.containsMouse ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.3) : Util.alpha(island ? island.accentColor : "#2DD5B7", 0.12)
-            border.width: 1
-            border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.35)
+            width: island ? island.s(26) : 26
+            height: width
+            radius: width / 2
+            color: Util.alpha(island ? island.accentColor : "#2DD5B7", openMouse.containsMouse ? 0.28 : 0.12)
 
             Text {
-              id: openText
               anchors.centerIn: parent
-              text: "Open 󰏌"
+              text: "󰏌"
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
-              font.family: island ? island.textFamily : "sans-serif"
-              font.pixelSize: island ? island.f(10) : 10
-              font.weight: Font.Medium
+              font.family: island ? island.fontFamily : "sans-serif"
+              font.pixelSize: island ? island.f(12) : 12
               color: island ? island.accentColor : "#2DD5B7"
             }
 
@@ -328,19 +310,19 @@ Item {
           // Kill Process Button (with Confirmation)
           Rectangle {
             visible: portDelegate.modelData.pid !== "-"
-            width: portDelegate.confirmingKill ? (confirmText.implicitWidth + (island ? island.s(12) : 12)) : (island ? island.s(24) : 24)
-            height: island ? island.s(24) : 24
-            radius: island ? island.s(6) : 6
+            width: portDelegate.confirmingKill ? (confirmText.implicitWidth + (island ? island.s(16) : 16)) : (island ? island.s(26) : 26)
+            height: island ? island.s(26) : 26
+            radius: height / 2
             color: portDelegate.confirmingKill
-              ? Util.alpha(island ? island.urgentColor : "#ff4444", 0.35)
-              : (killMouse.containsMouse ? Util.alpha(island ? island.urgentColor : "#ff4444", 0.25) : Util.alpha(island ? island.urgentColor : "#ff4444", 0.1))
-            border.width: 1
-            border.color: Util.alpha(island ? island.urgentColor : "#ff4444", 0.45)
+              ? Util.alpha(island ? island.urgentColor : "#ff4444", 0.32)
+              : Util.alpha(island ? island.urgentColor : "#ff4444", killMouse.containsMouse ? 0.24 : 0.08)
+
+            Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
             Text {
               id: confirmText
               anchors.centerIn: parent
-              text: portDelegate.confirmingKill ? "Kill?" : "󰅖"
+              text: portDelegate.confirmingKill ? "Stop" : "󰅖"
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
               font.family: island ? island.fontFamily : "sans-serif"

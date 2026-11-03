@@ -8,22 +8,20 @@ Item {
 
   property var island: null
   readonly property int pad: island ? island.s(18) : 18
-  property var stagedItems: [
-    { name: "package.json", path: "/home/tnr/package.json", isDir: false },
-    { name: "projects", path: "/home/tnr/projects", isDir: true }
-  ]
+  property var stagedItems: []
 
   Process {
     id: shelfCmdRunner
   }
 
   function copyPath(p) {
-    shelfCmdRunner.command = ["sh", "-c", "printf '%s' " + JSON.stringify(p) + " | wl-copy"]
+    // Pass the path as an argument so names with $ or backticks stay literal
+    shelfCmdRunner.command = ["sh", "-c", "printf '%s' \"$1\" | wl-copy", "sh", p]
     shelfCmdRunner.running = true
     if (island) island.showHud({
       key: "shelf",
       layout: "toast",
-      title: "Path Copied",
+      title: "Copied",
       message: p,
       icon: "󰆏",
       color: island.accentColor,
@@ -31,14 +29,14 @@ Item {
     })
   }
 
-  function openInTerminal(p) {
-    shelfCmdRunner.command = ["sh", "-c", "alacritty --working-directory " + JSON.stringify(p) + " &"]
-    shelfCmdRunner.running = true
+  function openInTerminal(p, isDir) {
+    var dir = isDir ? p : (p.substring(0, p.lastIndexOf("/")) || "/")
+    Quickshell.execDetached(["alacritty", "--working-directory", dir])
     if (island) island.showHud({
       key: "shelf",
       layout: "toast",
-      title: "Terminal Opened",
-      message: p,
+      title: "Terminal",
+      message: dir,
       icon: "󰞷",
       color: island.accentColor,
       duration: 1500
@@ -59,7 +57,7 @@ Item {
 
   function addPath(p) {
     if (!p) return
-    var trimmed = String(p).trim().replace(/^file:\/\//, "")
+    var trimmed = decodeURIComponent(String(p).trim().replace(/^file:\/\//, "")).replace(/(.)\/+$/, "$1")
     var parts = trimmed.split("/")
     var name = parts[parts.length - 1] || trimmed
     var list = view.stagedItems.slice()
@@ -68,7 +66,7 @@ Item {
     if (island) island.showHud({
       key: "shelf",
       layout: "toast",
-      title: "Staged to Shelf",
+      title: "Shelved",
       message: name,
       icon: "󰉋",
       color: island.accentColor,
@@ -99,7 +97,7 @@ Item {
       }
 
       Text {
-        text: "File & Folder Shelf"
+        text: "Shelf"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island.textFamily
@@ -109,6 +107,7 @@ Item {
       }
 
       Rectangle {
+        visible: view.stagedItems.length > 0
         width: countText.implicitWidth + island.s(10)
         height: island.s(18)
         radius: height / 2
@@ -118,7 +117,7 @@ Item {
         Text {
           id: countText
           anchors.centerIn: parent
-          text: String(view.stagedItems.length) + " staged"
+          text: String(view.stagedItems.length)
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island.fontFamily
@@ -145,7 +144,7 @@ Item {
         Text {
           id: clearText
           anchors.centerIn: parent
-          text: "Clear All"
+          text: "Clear"
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island.textFamily
@@ -186,9 +185,9 @@ Item {
       anchors.fill: parent
       visible: view.stagedItems.length === 0
       radius: island.s(10)
-      color: dropArea.containsDrag ? Util.alpha(island.accentColor, 0.15) : Util.alpha(island.surfaceTop, 0.4)
+      color: dropArea.containsDrag ? Util.alpha(island.accentColor, 0.12) : Util.alpha(island.fg, 0.03)
       border.width: 1
-      border.color: dropArea.containsDrag ? island.accentColor : Util.alpha(island.rim, 0.8)
+      border.color: dropArea.containsDrag ? island.accentColor : Util.alpha(island.fg, 0.1)
 
       Column {
         anchors.centerIn: parent
@@ -206,22 +205,12 @@ Item {
 
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
-          text: "Drag & drop files or folders here"
+          text: "Drop files here"
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island.textFamily
-          font.pixelSize: island.f(12)
-          color: island.fg
-        }
-
-        Text {
-          anchors.horizontalCenter: parent.horizontalCenter
-          text: "Staged for rapid path copying or CLI operations"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(10)
-          color: Util.alpha(island.fg, 0.4)
+          font.pixelSize: island.f(11)
+          color: dropArea.containsDrag ? island.accentColor : island.fgDim
         }
       }
     }
@@ -240,10 +229,10 @@ Item {
         required property int index
         width: shelfList.width
         height: island.s(36)
-        radius: island.s(8)
-        color: Util.alpha(island.surfaceTop, 0.6)
-        border.width: 1
-        border.color: Util.alpha(island.rim, 0.8)
+        radius: island.s(10)
+        color: Util.alpha(island.fg, shelfHover.hovered ? 0.08 : 0.04)
+
+        HoverHandler { id: shelfHover }
 
         Row {
           anchors.left: parent.left
@@ -268,8 +257,8 @@ Item {
             font.pixelSize: island.f(12)
             font.weight: Font.Medium
             color: island.fg
-            elide: Text.ElideRight
-            width: island.s(160)
+            elide: Text.ElideMiddle
+            width: island.s(220)
           }
         }
 
@@ -282,19 +271,18 @@ Item {
 
           // Copy Path
           Rectangle {
-            width: copyText.implicitWidth + island.s(10)
+            width: island.s(22)
             height: island.s(22)
             radius: island.s(6)
             color: copyMouse.containsMouse ? Util.alpha(island.accentColor, 0.25) : Util.alpha(island.fg, 0.08)
 
             Text {
-              id: copyText
               anchors.centerIn: parent
-              text: "󰆏 Copy"
+              text: "󰆏"
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
-              font.family: island.textFamily
-              font.pixelSize: island.f(10)
+              font.family: island.fontFamily
+              font.pixelSize: island.f(11)
               color: copyMouse.containsMouse ? island.accentColor : island.fgDim
             }
 
@@ -329,7 +317,7 @@ Item {
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: view.openInTerminal(modelData.path)
+              onClicked: view.openInTerminal(modelData.path, modelData.isDir)
             }
           }
 

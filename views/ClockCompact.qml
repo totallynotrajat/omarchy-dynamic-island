@@ -11,7 +11,7 @@ Item {
   readonly property var clocks: island.clocks
   readonly property bool timer: mode === "timer"
   readonly property bool paused: timer ? clocks.timerPaused : !clocks.stopwatchRunning
-  readonly property bool isBreak: clocks.isPomodoro && (clocks.timerLabel.indexOf("Break") !== -1 || clocks.timerLabel.indexOf("break") !== -1)
+  readonly property bool isBreak: clocks.isPomodoro && clocks.isBreak
   readonly property color tone: paused ? island.fgDim : (timer ? (isBreak ? island.greenColor : island.orangeColor) : island.accentColor)
 
   Item {

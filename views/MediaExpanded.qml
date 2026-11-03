@@ -11,8 +11,15 @@ Item {
 
   property var island: null
   readonly property int pad: island ? island.s(20) : 20
-  readonly property real progress: island && island.mediaLength > 0
+
+  // Dragging the scrubber only moves a local preview; the player is sent a
+  // single seek when the pointer is released.
+  property bool scrubbing: false
+  property real scrubFraction: 0
+  readonly property real playerProgress: island && island.mediaLength > 0
     ? Math.max(0, Math.min(1, island.mediaPosition / island.mediaLength)) : 0
+  readonly property real progress: scrubbing ? scrubFraction : playerProgress
+  readonly property real shownPosition: island ? (scrubbing ? scrubFraction * island.mediaLength : island.mediaPosition) : 0
 
   readonly property real corner: island ? (island.notch ? island.s(26) : island.s(38)) : 26
 
@@ -66,8 +73,7 @@ Item {
     }
   }
 
-  // Refined Card-Floor Ambient Audio Spectrum Visualizer
-  // Anchored along the bottom floor with soft gradient, staying low so it never crowds transport controls
+  // Ambient bars along the card floor, kept low and faint under the controls
   Row {
     id: bgAuraVisualizer
     anchors.bottom: parent.bottom
@@ -115,7 +121,7 @@ Item {
     }
   }
 
-  // Row 1: Album Art + Track Info + Output Badge
+  // Row 1: Album Art + Track Info
   AlbumArt {
     id: art
     x: view.pad
@@ -138,7 +144,7 @@ Item {
 
     Text {
       width: parent.width
-      text: (island && island.mediaTitle) ? island.mediaTitle : "Not playing"
+      text: (island && island.mediaTitle) ? island.mediaTitle : "Nothing playing"
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       elide: Text.ElideRight
@@ -159,30 +165,6 @@ Item {
       font.pixelSize: island ? island.f(13) : 13
       color: island ? island.accentColor : "#2DD5B7"
     }
-
-    // Sleek audio output pill
-    Row {
-      spacing: island ? island.s(4) : 4
-      opacity: 0.85
-
-      Text {
-        text: island ? island.outputGlyph(island.sink) : "󰕾"
-        textFormat: Text.PlainText
-        renderType: Text.NativeRendering
-        font.family: island ? island.fontFamily : ""
-        font.pixelSize: island ? island.f(11) : 11
-        color: island ? island.fgDim : "#C1C497"
-      }
-
-      Text {
-        text: (island && island.sink) ? (island.sink.description || island.sink.nickname || island.sink.name || "Default Output") : "Default Output"
-        textFormat: Text.PlainText
-        renderType: Text.NativeRendering
-        font.family: island ? island.fontFamily : ""
-        font.pixelSize: island ? island.f(10) : 10
-        color: island ? island.fgDim : "#C1C497"
-      }
-    }
   }
 
   // Row 2: Elapsed · Scrubber bar · Remaining
@@ -199,26 +181,26 @@ Item {
       id: elapsed
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      text: island ? Model.formatTime(island.mediaPosition) : "0:00"
+      text: Model.formatTime(view.shownPosition)
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       font.family: island ? island.fontFamily : ""
       font.pixelSize: island ? island.f(11) : 11
       font.features: { "tnum": 1 }
-      color: island ? island.fgDim : "#C1C497"
+      color: island ? island.fgDim : "#F7E8B2"
     }
 
     Text {
       id: remaining
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      text: island ? ("-" + Model.formatTime(island.mediaLength - island.mediaPosition)) : "-0:00"
+      text: island ? ("-" + Model.formatTime(island.mediaLength - view.shownPosition)) : "-0:00"
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       font.family: island ? island.fontFamily : ""
       font.pixelSize: island ? island.f(11) : 11
       font.features: { "tnum": 1 }
-      color: island ? island.fgDim : "#C1C497"
+      color: island ? island.fgDim : "#F7E8B2"
     }
 
     Item {
@@ -230,7 +212,7 @@ Item {
       anchors.verticalCenter: parent.verticalCenter
       height: parent.height
 
-      readonly property real barHeight: seek.containsMouse ? (island ? island.s(6) : 6) : (island ? island.s(4) : 4)
+      readonly property real barHeight: seek.containsMouse || view.scrubbing ? (island ? island.s(6) : 6) : (island ? island.s(4) : 4)
 
       Rectangle {
         anchors.verticalCenter: parent.verticalCenter
@@ -255,7 +237,7 @@ Item {
 
         // The playhead knob
         Rectangle {
-          property real d: seek.containsMouse ? (island ? island.s(12) : 12) : (island ? island.s(8) : 8)
+          property real d: seek.containsMouse || view.scrubbing ? (island ? island.s(12) : 12) : (island ? island.s(8) : 8)
           width: d
           height: d
           radius: d / 2
@@ -275,12 +257,24 @@ Item {
         hoverEnabled: true
         enabled: island && island.mediaCanSeek
         cursorShape: (island && island.mediaCanSeek) ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: function(mouse) { if (island) island.mediaSeek(mouse.x / width) }
-        onPositionChanged: function(mouse) {
-          if (pressed && island) {
-            island.mediaSeek(Math.max(0, Math.min(1, mouse.x / width)))
-          }
+        preventStealing: true
+
+        function fractionAt(x) { return Math.max(0, Math.min(1, x / width)) }
+
+        onPressed: function(mouse) {
+          view.scrubFraction = fractionAt(mouse.x)
+          view.scrubbing = true
         }
+        onPositionChanged: function(mouse) {
+          if (view.scrubbing) view.scrubFraction = fractionAt(mouse.x)
+        }
+        onReleased: function(mouse) {
+          if (!view.scrubbing) return
+          view.scrubFraction = fractionAt(mouse.x)
+          if (island) island.mediaSeek(view.scrubFraction)
+          view.scrubbing = false
+        }
+        onCanceled: view.scrubbing = false
       }
     }
   }
@@ -294,7 +288,7 @@ Item {
     anchors.bottomMargin: island ? island.s(16) : 16
     glyph: island ? island.outputGlyph(island.sink) : "󰕾"
     glyphSize: island ? island.f(15) : 15
-    color: island ? island.fgDim : "#C1C497"
+    color: island ? island.fgDim : "#F7E8B2"
     fontFamily: island ? island.fontFamily : ""
     z: 2
     onClicked: if (island) island.openOutputs()

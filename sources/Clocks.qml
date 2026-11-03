@@ -43,11 +43,20 @@ Item {
   readonly property bool timerActive: isFocusd || rawTimerActive
   readonly property bool timerPaused: isFocusd ? focusd.paused : rawTimerPaused
   readonly property real timerProgress: isFocusd ? focusd.progress : rawTimerProgress
-  readonly property double timerDuration: isFocusd ? (focusd.durationSeconds * 1000) : (rawTimerTotal > 0 ? rawTimerTotal : 1500000)
-  readonly property double timerLeft: isFocusd ? (focusd.remainingSeconds * 1000) : (rawTimerActive ? rawTimerLeft : 1500000)
+  readonly property double phaseDuration: (pomodoroPhase === "short-break" ? 5 : (pomodoroPhase === "long-break" ? 15 : 25)) * 60000
+  readonly property double timerLeft: isFocusd ? (focusd.remainingSeconds * 1000) : (rawTimerActive ? rawTimerLeft : phaseDuration)
   readonly property string timerLabel: isFocusd ? focusd.sessionLabel : (rawTimerLabel || (pomodoroPhase === "short-break" ? "Short Break" : (pomodoroPhase === "long-break" ? "Long Break" : "Pomodoro")))
 
-  readonly property bool isPomodoro: timerActive && (isFocusd || rawTimerLabel === "Pomodoro" || rawTimerLabel === "Work" || rawTimerLabel.indexOf("Break") !== -1 || rawTimerLabel.indexOf("break") !== -1 || rawTimerLabel.indexOf("Focus") !== -1)
+  // Any focus or break label ("Pomodoro", "Focus", "Deep Work",
+  // "Short Break", ...) belongs to the Pomodoro cycle; anything else is a
+  // plain kitchen timer.
+  function isBreakLabel(label) { return /break/i.test(String(label || "")) }
+  function isWorkLabel(label) { return /pomodoro|work|focus/i.test(String(label || "")) }
+
+  readonly property bool isPomodoro: timerActive && (isFocusd || isWorkLabel(rawTimerLabel) || isBreakLabel(rawTimerLabel))
+  readonly property bool isBreak: isFocusd ? focusd.session !== "work"
+    : (rawTimerActive ? isBreakLabel(rawTimerLabel) : pomodoroPhase !== "work")
+  readonly property string timeDisplay: Model.formatClock(Math.ceil(timerLeft / 1000))
   readonly property int completedSessions: isFocusd ? focusd.completedSessions : pomodoroCompleted
 
   // ---- stopwatch
@@ -78,6 +87,9 @@ Item {
       pomodoroPhase = "work"
       return
     }
+
+    if (isBreakLabel(lbl)) pomodoroPhase = /long/i.test(lbl) ? "long-break" : "short-break"
+    else if (isWorkLabel(lbl)) pomodoroPhase = "work"
 
     var ms = Math.max(1, sec) * 1000
     now = Date.now()
@@ -125,7 +137,7 @@ Item {
       focusd.skip()
       return
     }
-    if (pomodoroPhase === "work") {
+    if (!isBreak) {
       pomodoroCompleted++
       if (pomodoroCompleted % 4 === 0) {
         pomodoroPhase = "long-break"
@@ -183,29 +195,29 @@ Item {
 
   function timerFinished() {
     var label = rawTimerLabel || "Timer"
-    if (label === "Pomodoro" || label === "Work") {
+    if (isBreakLabel(label)) {
+      pomodoroPhase = "work"
+      cancelTimer()
+      if (island) {
+        island.toast({
+          title: "Break over",
+          body: "Focus · 25m",
+          icon: "",
+          color: "accent",
+          duration: 12000
+        })
+      }
+    } else if (isWorkLabel(label)) {
       pomodoroCompleted++
       var isLong = pomodoroCompleted % 4 === 0
       pomodoroPhase = isLong ? "long-break" : "short-break"
       cancelTimer()
       if (island) {
         island.toast({
-          title: "Focus Session Complete",
-          body: isLong ? "Great job! Time for a 15 min long break." : "Take a 5 min break.",
+          title: "Focus complete",
+          body: isLong ? "Long break · 15m" : "Short break · 5m",
           icon: "",
           color: "green",
-          duration: 12000
-        })
-      }
-    } else if (label === "Short Break" || label === "Long Break") {
-      pomodoroPhase = "work"
-      cancelTimer()
-      if (island) {
-        island.toast({
-          title: "Break Ended",
-          body: "Ready to focus for 25 minutes?",
-          icon: "",
-          color: "accent",
           duration: 12000
         })
       }
@@ -214,7 +226,7 @@ Item {
       if (island) {
         island.toast({
           title: label,
-          body: "Time's up",
+          body: "Done",
           icon: "󰀠",
           color: "accent",
           duration: 12000

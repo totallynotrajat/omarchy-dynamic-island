@@ -3,12 +3,9 @@ import QtQuick.Controls
 import qs.Commons
 import "../IslandModel.js" as Model
 
-// Calendar View supporting 4 segmented view modes:
-// 1. Month: Dual-pane month matrix on the left, selected day events on the right.
-// 2. Week: 7-day schedule columns with events and meeting links.
-// 3. 3-Day: 3-column timeline (Yesterday / Today / Tomorrow) with meeting cards.
-// 4. Today: Focused schedule with a Hero Next Meeting card and Join Call action.
-// Zero emojis: strictly clean typography and Material symbols.
+// Calendar with four modes: Month (grid + selected day), Week (seven
+// columns), 3-Day (yesterday / today / tomorrow) and Today (next meeting +
+// agenda). The add drawer manages feeds and the holiday calendar.
 Item {
   id: view
 
@@ -73,18 +70,10 @@ Item {
     return Qt.formatDateTime(new Date(t), fmt)
   }
 
+  // cal.month() spans a week before and two weeks after the month, which
+  // covers every day the Week and 3-Day modes show around today.
   function eventsForDate(targetDate) {
-    var k = Model.dayKey(targetDate.getTime())
-    var evs = currentMonthDays[k]
-    if (evs) return evs
-    if (days[k]) return days[k]
-    if (cal && cal.raw) {
-      var d0 = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime()
-      var d1 = d0 + 86400000
-      var parsed = Model.parseIcs(cal.raw, d0, d1, true)
-      return parsed
-    }
-    return []
+    return currentMonthDays[Model.dayKey(targetDate.getTime())] || []
   }
 
   // ------------------------------------------------------------ Header / Tab Switcher Bar
@@ -423,7 +412,7 @@ Item {
         Text {
           visible: view.dayEvents.length === 0
           anchors.centerIn: parent
-          text: "No events scheduled"
+          text: "No events"
           textFormat: Text.PlainText
           renderType: Text.NativeRendering
           font.family: island ? island.textFamily : "sans-serif"
@@ -710,12 +699,13 @@ Item {
             Text {
               visible: threeDayCol.colEvents.length === 0
               anchors.centerIn: parent
-              text: "No events"
+              text: "—"
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
-              font.pixelSize: island ? island.f(10) : 10
+              font.pixelSize: island ? island.f(11) : 11
               color: island.fgDim
+              opacity: 0.4
             }
           }
         }
@@ -739,9 +729,10 @@ Item {
       // Hero Upcoming Meeting Card
       Rectangle {
         id: heroCard
+        visible: !!todayContainer.heroEvent
         anchors.top: parent.top
         width: parent.width
-        height: island ? island.s(68) : 68
+        height: visible ? (island ? island.s(68) : 68) : 0
         radius: island ? island.s(12) : 12
         color: Util.alpha(island.accentColor, 0.12)
         border.width: 1
@@ -761,7 +752,7 @@ Item {
           }
 
           Text {
-            text: todayContainer.heroEvent ? "UPCOMING MEETING · " + Model.untilText(todayContainer.heroEvent.start, Date.now()) : "NO UPCOMING MEETINGS TODAY"
+            text: todayContainer.heroEvent ? ("NEXT  ·  " + Model.untilText(todayContainer.heroEvent.start, view.currentDate.getTime())).toUpperCase() : ""
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
@@ -779,7 +770,7 @@ Item {
 
           Text {
             width: parent.width
-            text: todayContainer.heroEvent ? todayContainer.heroEvent.title : "Schedule clear for today"
+            text: todayContainer.heroEvent ? (todayContainer.heroEvent.title || "Busy") : ""
             elide: Text.ElideRight
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
@@ -815,7 +806,7 @@ Item {
           Text {
             id: joinText
             anchors.centerIn: parent
-            text: "Join Call 󰏌"
+            text: "Join  󰏌"
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
@@ -836,8 +827,8 @@ Item {
 
       // Today's Agenda List
       ListView {
-        anchors.top: heroCard.bottom
-        anchors.topMargin: island ? island.s(8) : 8
+        anchors.top: heroCard.visible ? heroCard.bottom : parent.top
+        anchors.topMargin: heroCard.visible ? (island ? island.s(8) : 8) : 0
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
@@ -914,6 +905,17 @@ Item {
           }
         }
       }
+
+      Text {
+        visible: view.todayEvents.length === 0
+        anchors.centerIn: parent
+        text: "Nothing today"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.textFamily : "sans-serif"
+        font.pixelSize: island ? island.f(11) : 11
+        color: island.fgDim
+      }
     }
 
     // ============================================================ ADD / HOLIDAYS DRAWER
@@ -930,7 +932,7 @@ Item {
         clip: true
         spacing: island ? island.s(3) : 3
         boundsBehavior: Flickable.StopAtBounds
-        model: [{ code: "off", name: "No holidays" }].concat(Model.holidayCalendars)
+        model: [{ code: "off", name: "None" }].concat(Model.holidayCalendars)
 
         delegate: Rectangle {
           id: country
@@ -947,7 +949,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: island ? island.s(12) : 12
             anchors.verticalCenter: parent.verticalCenter
-            text: country.modelData.name + (country.modelData.code === view.cal.detectedCountry ? "  (your timezone)" : "")
+            text: country.modelData.name + (country.modelData.code === view.cal.detectedCountry ? "  ·  local" : "")
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
@@ -1081,7 +1083,7 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: island ? island.s(12) : 12
             anchors.verticalCenter: parent.verticalCenter
-            text: "󰃭  Holidays: " + (view.cal && view.cal.holidayName ? view.cal.holidayName : "off") + "  ›"
+            text: "󰃭  Holidays  ·  " + (view.cal && view.cal.holidayName ? view.cal.holidayName : "None")
             elide: Text.ElideRight
             textFormat: Text.PlainText
             renderType: Text.NativeRendering

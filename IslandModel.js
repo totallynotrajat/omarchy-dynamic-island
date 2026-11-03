@@ -643,7 +643,7 @@ var defaultSettings = {
   monitor: "primary",
   layer: "top",
   expandOnHover: false,
-  clockFormat: "h:mm AP",
+  clockFormat: "dddd HH:mm",
   mediaLingerSeconds: 30,
   notchWidth: 0,
   notchHeight: 0,

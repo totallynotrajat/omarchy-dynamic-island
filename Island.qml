@@ -1477,7 +1477,7 @@ Item {
       Behavior on h { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
       Behavior on r { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
 
-      readonly property real earSize: root.isIdleState ? root.s(3) : root.s(9)
+      property real earSize: root.isIdleState ? root.s(4) : root.s(18)
       Behavior on earSize { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
 
       // Notch style: the body and its two concave "ears" (the fillets that
@@ -1494,7 +1494,7 @@ Item {
         readonly property real x0: island.x
         readonly property real x1: island.x + island.width
         readonly property real h: island.height
-        readonly property real r: Math.max(0, Math.min(island.radius, h - e, island.width / 2))
+        readonly property real r: Math.max(0, Math.min(root.isIdleState ? island.radius : root.s(26), h - e, island.width / 2))
 
         ShapePath {
           strokeColor: "transparent"
@@ -1600,7 +1600,7 @@ Item {
         y: root.snap(root.topMargin)
         width: root.snap(Math.max(0, stage.w))
         height: root.snap(Math.max(0, stage.h))
-        radius: Math.max(0, Math.min(stage.r, height / 2, width / 2))
+        radius: root.notch ? 0 : Math.max(0, Math.min(stage.r, height / 2, width / 2))
         // The shapes above paint the body; this only clips and hosts content.
         color: "transparent"
         clip: true

@@ -10,21 +10,18 @@ Item {
   id: view
 
   property var island: null
-  readonly property int pad: island.s(22)
-  readonly property real progress: island.mediaLength > 0
+  readonly property int pad: island ? island.s(20) : 20
+  readonly property real progress: island && island.mediaLength > 0
     ? Math.max(0, Math.min(1, island.mediaPosition / island.mediaLength)) : 0
 
-  // The cover, blurred into a soft wash behind the player (Apple Music
-  // style). Only this backdrop goes through a blur; it is painted into a
-  // vector shape with the island's corners, so the edges stay crisp.
-  readonly property real corner: island.s(42)
+  readonly property real corner: island ? (island.notch ? island.s(26) : island.s(38)) : 26
 
   Image {
     id: washSource
     visible: false
     width: view.width
     height: view.height
-    source: island.mediaArt
+    source: island ? island.mediaArt : ""
     sourceSize.width: 96
     sourceSize.height: 96
     fillMode: Image.PreserveAspectCrop
@@ -52,7 +49,7 @@ Item {
   Shape {
     anchors.fill: parent
     visible: washSource.status === Image.Ready
-    opacity: 0.42
+    opacity: 0.35
     preferredRendererType: Shape.CurveRenderer
 
     ShapePath {
@@ -61,56 +58,45 @@ Item {
       fillItem: washTexture
       PathRectangle {
         x: 0; y: 0; width: view.width; height: view.height
-        topLeftRadius: island.notch ? 0 : view.corner
-        topRightRadius: island.notch ? 0 : view.corner
+        topLeftRadius: island && island.notch ? 0 : view.corner
+        topRightRadius: island && island.notch ? 0 : view.corner
         bottomLeftRadius: view.corner
         bottomRightRadius: view.corner
       }
     }
   }
 
-  AlbumArt {
-    id: art
-    x: view.pad
-    y: island.s(20)
-    width: island.s(58)
-    height: width
-    source: island.mediaArt
-    tint: island.accentColor
-    fontFamily: island.fontFamily
-  }
-
-  // Card-Background Integrated Audio Spectrum Visualizer
-  // Anchored to the bottom floor of the card and fading ~halfway up
+  // Refined Card-Floor Ambient Audio Spectrum Visualizer
+  // Anchored along the bottom floor with soft gradient, staying low so it never crowds transport controls
   Row {
     id: bgAuraVisualizer
     anchors.bottom: parent.bottom
-    anchors.bottomMargin: island.s(2)
+    anchors.bottomMargin: island ? island.s(2) : 2
     anchors.left: parent.left
-    anchors.leftMargin: island.s(12)
+    anchors.leftMargin: island ? island.s(16) : 16
     anchors.right: parent.right
-    anchors.rightMargin: island.s(12)
-    height: island.s(60)
-    spacing: island.s(4)
+    anchors.rightMargin: island ? island.s(16) : 16
+    height: island ? island.s(26) : 26
+    spacing: island ? island.s(4) : 4
     z: 0
-    opacity: island.mediaPlaying ? 0.35 : 0.12
+    opacity: island && island.mediaPlaying ? 0.32 : 0.08
     Behavior on opacity { NumberAnimation { duration: 300 } }
 
     Repeater {
       id: bgBars
-      model: 28
+      model: 32
 
       Rectangle {
         required property int index
-        property real barLevel: 0.35
+        property real barLevel: 0.25
         anchors.bottom: parent.bottom
-        width: Math.max(2, (bgAuraVisualizer.width - 27 * island.s(4)) / 28)
-        radius: island.s(2)
-        height: Math.max(island.s(4), island.s(55) * (island.mediaPlaying ? barLevel : 0.12))
+        width: Math.max(2, (bgAuraVisualizer.width - 31 * (island ? island.s(4) : 4)) / 32)
+        radius: island ? island.s(2) : 2
+        height: Math.max(island ? island.s(3) : 3, (island ? island.s(24) : 24) * (island && island.mediaPlaying ? barLevel : 0.1))
         gradient: Gradient {
           GradientStop { position: 0.0; color: "transparent" }
-          GradientStop { position: 0.45; color: Util.alpha(island.mediaTint || island.accentColor, 0.25) }
-          GradientStop { position: 1.0; color: Util.alpha(island.mediaTint || island.accentColor, 0.75) }
+          GradientStop { position: 0.5; color: Util.alpha(island ? (island.mediaTint || island.accentColor) : "#2DD5B7", 0.12) }
+          GradientStop { position: 1.0; color: Util.alpha(island ? (island.mediaTint || island.accentColor) : "#2DD5B7", 0.32) }
         }
         Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.InOutSine } }
       }
@@ -119,7 +105,7 @@ Item {
     Timer {
       interval: 180
       repeat: true
-      running: island.mediaPlaying && view.visible
+      running: island && island.mediaPlaying && view.visible
       onTriggered: {
         for (var i = 0; i < bgBars.count; i++) {
           var b = bgBars.itemAt(i)
@@ -129,92 +115,129 @@ Item {
     }
   }
 
+  // Row 1: Album Art + Track Info + Output Badge
+  AlbumArt {
+    id: art
+    x: view.pad
+    y: island ? island.s(18) : 18
+    width: island ? island.s(60) : 60
+    height: width
+    source: island ? island.mediaArt : ""
+    tint: island ? island.accentColor : "#2DD5B7"
+    fontFamily: island ? island.fontFamily : ""
+  }
+
   Column {
     anchors.left: art.right
-    anchors.leftMargin: island.s(14)
+    anchors.leftMargin: island ? island.s(14) : 14
     anchors.right: parent.right
     anchors.rightMargin: view.pad
     anchors.verticalCenter: art.verticalCenter
-    spacing: island.s(3)
+    spacing: island ? island.s(3) : 3
     z: 2
 
     Text {
       width: parent.width
-      text: island.mediaTitle || "Not playing"
+      text: (island && island.mediaTitle) ? island.mediaTitle : "Not playing"
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       elide: Text.ElideRight
-      font.family: island.textFamily
-      font.pixelSize: island.f(15)
+      font.family: island ? island.textFamily : ""
+      font.pixelSize: island ? island.f(15) : 15
       font.weight: Font.DemiBold
-      color: island.fg
+      color: island ? island.fg : "#F7E8B2"
     }
 
     Text {
       width: parent.width
       visible: text !== ""
-      text: island.mediaArtist
+      text: island ? island.mediaArtist : ""
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
       elide: Text.ElideRight
-      font.family: island.textFamily
-      font.pixelSize: island.f(13)
-      color: island.fgDim
+      font.family: island ? island.textFamily : ""
+      font.pixelSize: island ? island.f(13) : 13
+      color: island ? island.accentColor : "#2DD5B7"
+    }
+
+    // Sleek audio output pill
+    Row {
+      spacing: island ? island.s(4) : 4
+      opacity: 0.85
+
+      Text {
+        text: island ? island.outputGlyph(island.sink) : "󰕾"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.fontFamily : ""
+        font.pixelSize: island ? island.f(11) : 11
+        color: island ? island.fgDim : "#C1C497"
+      }
+
+      Text {
+        text: (island && island.sink) ? island.sink : "Default Output"
+        textFormat: Text.PlainText
+        renderType: Text.NativeRendering
+        font.family: island ? island.fontFamily : ""
+        font.pixelSize: island ? island.f(10) : 10
+        color: island ? island.fgDim : "#C1C497"
+      }
     }
   }
 
-  // Elapsed · bar · remaining
+  // Row 2: Elapsed · Scrubber bar · Remaining
   Item {
     id: progressRow
     x: view.pad
     width: parent.width - view.pad * 2
-    y: art.y + art.height + island.s(16)
-    height: island.s(16)
-    visible: island.mediaLength > 0
+    y: art.y + art.height + (island ? island.s(14) : 14)
+    height: island ? island.s(16) : 16
+    visible: island && island.mediaLength > 0
+    z: 2
 
     Text {
       id: elapsed
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      text: Model.formatTime(island.mediaPosition)
+      text: island ? Model.formatTime(island.mediaPosition) : "0:00"
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
-      font.family: island.fontFamily
-      font.pixelSize: island.f(11)
+      font.family: island ? island.fontFamily : ""
+      font.pixelSize: island ? island.f(11) : 11
       font.features: { "tnum": 1 }
-      color: island.fgDim
+      color: island ? island.fgDim : "#C1C497"
     }
 
     Text {
       id: remaining
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      text: "-" + Model.formatTime(island.mediaLength - island.mediaPosition)
+      text: island ? ("-" + Model.formatTime(island.mediaLength - island.mediaPosition)) : "-0:00"
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
-      font.family: island.fontFamily
-      font.pixelSize: island.f(11)
+      font.family: island ? island.fontFamily : ""
+      font.pixelSize: island ? island.f(11) : 11
       font.features: { "tnum": 1 }
-      color: island.fgDim
+      color: island ? island.fgDim : "#C1C497"
     }
 
     Item {
       id: track
       anchors.left: elapsed.right
-      anchors.leftMargin: island.s(10)
+      anchors.leftMargin: island ? island.s(10) : 10
       anchors.right: remaining.left
-      anchors.rightMargin: island.s(10)
+      anchors.rightMargin: island ? island.s(10) : 10
       anchors.verticalCenter: parent.verticalCenter
       height: parent.height
 
-      readonly property real barHeight: seek.containsMouse ? island.s(7) : island.s(5)
+      readonly property real barHeight: seek.containsMouse ? (island ? island.s(6) : 6) : (island ? island.s(4) : 4)
 
       Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         width: parent.width
         height: track.barHeight
         radius: height / 2
-        color: Util.alpha(island.fg, 0.16)
+        color: Util.alpha(island ? island.fg : "#F7E8B2", 0.12)
 
         Behavior on height { NumberAnimation { duration: 120 } }
 
@@ -225,22 +248,22 @@ Item {
           width: Math.max(view.progress > 0 ? height : 0, parent.width * view.progress)
           gradient: Gradient {
             orientation: Gradient.Horizontal
-            GradientStop { position: 0; color: Util.alpha(island.fg, 0.55) }
-            GradientStop { position: 1; color: island.fg }
+            GradientStop { position: 0; color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.65) }
+            GradientStop { position: 1; color: island ? island.accentColor : "#2DD5B7" }
           }
         }
 
-        // The playhead.
+        // The playhead knob
         Rectangle {
-          property real d: seek.containsMouse ? island.s(13) : island.s(9)
+          property real d: seek.containsMouse ? (island ? island.s(12) : 12) : (island ? island.s(8) : 8)
           width: d
           height: d
           radius: d / 2
           x: played.width - d / 2
           anchors.verticalCenter: parent.verticalCenter
-          color: island.fg
-          border.width: Math.max(1, island.s(2))
-          border.color: island.bodyAt(0.6)
+          color: island ? island.fg : "#F7E8B2"
+          border.width: 1
+          border.color: island ? island.bodyAt(0.6) : "#090F0D"
 
           Behavior on d { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
         }
@@ -250,62 +273,65 @@ Item {
         id: seek
         anchors.fill: parent
         hoverEnabled: true
-        enabled: island.mediaCanSeek
-        cursorShape: island.mediaCanSeek ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: function(mouse) { island.mediaSeek(mouse.x / width) }
+        enabled: island && island.mediaCanSeek
+        cursorShape: (island && island.mediaCanSeek) ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: function(mouse) { if (island) island.mediaSeek(mouse.x / width) }
       }
     }
   }
 
-  // Where the sound goes (speakers, headphones, Bluetooth, HDMI).
+  // Row 3: Transport Controls & Audio Sink Selector
+  // Centered with comfortable vertical padding above the ambient visualizer floor
   IconButton {
     anchors.right: parent.right
-    anchors.rightMargin: view.pad - island.s(8)
+    anchors.rightMargin: view.pad - (island ? island.s(6) : 6)
     anchors.bottom: parent.bottom
-    anchors.bottomMargin: island.s(16)
-    glyph: island.outputGlyph(island.sink)
-    glyphSize: island.f(15)
-    color: island.fgDim
-    fontFamily: island.fontFamily
-    onClicked: island.openOutputs()
+    anchors.bottomMargin: island ? island.s(16) : 16
+    glyph: island ? island.outputGlyph(island.sink) : "󰕾"
+    glyphSize: island ? island.f(15) : 15
+    color: island ? island.fgDim : "#C1C497"
+    fontFamily: island ? island.fontFamily : ""
+    z: 2
+    onClicked: if (island) island.openOutputs()
   }
 
   Row {
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.bottom: parent.bottom
-    anchors.bottomMargin: island.s(14)
-    spacing: island.s(26)
+    anchors.bottomMargin: island ? island.s(14) : 14
+    spacing: island ? island.s(26) : 26
+    z: 2
 
     IconButton {
       anchors.verticalCenter: parent.verticalCenter
       glyph: "󰒮"
-      glyphSize: island.f(22)
-      color: island.fg
-      fontFamily: island.fontFamily
-      available: island.mediaCanPrevious
-      onClicked: island.mediaPrevious()
+      glyphSize: island ? island.f(20) : 20
+      color: island ? island.fg : "#F7E8B2"
+      fontFamily: island ? island.fontFamily : ""
+      available: island && island.mediaCanPrevious
+      onClicked: if (island) island.mediaPrevious()
     }
 
-    // Play / pause is the one solid control: a disc in the text color.
+    // Play / pause is the one solid control: a tactile disc with spring feedback
     Rectangle {
       anchors.verticalCenter: parent.verticalCenter
-      width: island.s(44)
+      width: island ? island.s(42) : 42
       height: width
       radius: width / 2
-      color: island.fg
-      scale: playMouse.pressed ? 0.9 : (playMouse.containsMouse ? 1.05 : 1)
+      color: island ? island.accentColor : "#2DD5B7"
+      scale: playMouse.pressed ? 0.92 : (playMouse.containsMouse ? 1.05 : 1)
 
       Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
 
       Text {
         anchors.centerIn: parent
-        anchors.horizontalCenterOffset: island.mediaPlaying ? 0 : island.s(1)
-        text: island.mediaPlaying ? "󰏤" : "󰐊"
+        anchors.horizontalCenterOffset: (island && island.mediaPlaying) ? 0 : (island ? island.s(1) : 1)
+        text: (island && island.mediaPlaying) ? "󰏤" : "󰐊"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
-        font.family: island.fontFamily
-        font.pixelSize: island.f(22)
-        color: island.bodyAt(0.5)
+        font.family: island ? island.fontFamily : ""
+        font.pixelSize: island ? island.f(18) : 18
+        color: island ? island.surfaceBottom : "#090F0D"
       }
 
       MouseArea {
@@ -313,18 +339,18 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: island.mediaToggle()
+        onClicked: if (island) island.mediaToggle()
       }
     }
 
     IconButton {
       anchors.verticalCenter: parent.verticalCenter
       glyph: "󰒭"
-      glyphSize: island.f(22)
-      color: island.fg
-      fontFamily: island.fontFamily
-      available: island.mediaCanNext
-      onClicked: island.mediaNext()
+      glyphSize: island ? island.f(20) : 20
+      color: island ? island.fg : "#F7E8B2"
+      fontFamily: island ? island.fontFamily : ""
+      available: island && island.mediaCanNext
+      onClicked: if (island) island.mediaNext()
     }
   }
 }

@@ -322,7 +322,7 @@ Item {
 
             Text {
               anchors.centerIn: parent
-              text: "✕"
+              text: "󰅖"
               textFormat: Text.PlainText
               renderType: Text.NativeRendering
               font.family: island.fontFamily

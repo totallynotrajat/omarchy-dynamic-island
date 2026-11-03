@@ -17,7 +17,7 @@ var sizes = {
   "hud-label":     { w: 310, h: 36, r: 18 },
   "hud-track":     { w: 368, h: 66, r: 28 },
   "hud-toast":     { w: 368, h: 66, r: 28 },
-  "media-expanded": { w: 404, h: 186, r: 42 },
+  "media-expanded": { w: 420, h: 186, r: 38 },
   "recording-expanded": { w: 392, h: 76, r: 34 },
   "recording-media-expanded": { w: 404, h: 145, r: 40 },
   "idle-expanded": { w: 424, h: 150, r: 40 },
@@ -27,9 +27,11 @@ var sizes = {
   "stopwatch":     { w: 236, h: 32, r: 16 },
   "activity":      { w: 256, h: 32, r: 16 },
   "calendar":      { w: 300, h: 32, r: 16 },
-  "clock-expanded": { w: 380, h: 132, r: 40 },
+  "clock-expanded": { w: 420, h: 136, r: 38 },
   "activity-expanded": { w: 392, h: 104, r: 38 },
-  "calendar-expanded": { w: 500, h: 262, r: 40 },
+  "calendar-expanded": { w: 520, h: 268, r: 38 },
+  "shelf-expanded": { w: 440, h: 210, r: 38 },
+  "ports-expanded": { w: 450, h: 230, r: 38 },
   "notification-actions": { w: 404, h: 118, r: 38 }
 }
 
@@ -52,17 +54,16 @@ function viewFor(state) {
   if (state.userExpanded && state.outputsOpen) return "outputs-expanded"
   if (state.userExpanded && state.calendarOpen) return "calendar-expanded"
   if (state.userExpanded) {
-    // Recording takes the top of an opened island so it can be stopped from
-    // there; music, if any, rides along underneath.
     if (state.recording) return state.hasMedia ? "recording-media-expanded" : "recording-expanded"
-    // Otherwise open whatever was clicked: the pill's activity, or the
-    // bubble's when the bubble was the thing clicked.
     var focus = state.focus || state.primary
-    if (focus === "timer" || focus === "stopwatch") return "clock-expanded"
+    if (focus === "timer" || focus === "stopwatch" || focus === "pomodoro") return "clock-expanded"
     if (focus === "activity") return "activity-expanded"
     if (focus === "calendar") return "calendar-expanded"
-    if (focus === "media" && state.hasMedia) return "media-expanded"
-    return state.hasMedia && focus !== "calendar" ? "media-expanded" : "idle-expanded"
+    if (focus === "shelf") return "shelf-expanded"
+    if (focus === "ports") return "ports-expanded"
+    if (focus === "media") return "media-expanded"
+    if (state.hasMedia) return "media-expanded"
+    return "calendar-expanded"
   }
   if (state.hud && state.hud.layout === "progress") return "hud-progress"
   if (state.notification) return state.notificationActions ? "notification-actions" : "notification"

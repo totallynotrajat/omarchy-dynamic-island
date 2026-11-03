@@ -92,6 +92,23 @@ Item {
   // Theme: Omarchy's shell tokens, plus the theme's green/yellow for the
   // charging and privacy tones the shell palette does not name.
   // ------------------------------------------------------------------
+  property bool glassMode: true
+  property bool leftSatHovered: false
+  property bool rightSatHovered: false
+
+  function toggleGlassMode() {
+    glassMode = !glassMode
+    showHud({
+      key: "mode",
+      layout: "toast",
+      title: glassMode ? "Raycast Glass" : "Sharp Omarchy",
+      message: glassMode ? "Frosted translucent glass with Osaka Jade tint" : "Solid high-contrast obsidian styling",
+      icon: glassMode ? "󰒓" : "󰍹",
+      color: accentColor,
+      duration: 1800
+    })
+  }
+
   property var themeColors: ({})
 
   FileView {
@@ -116,8 +133,8 @@ Item {
   readonly property color outline: blackBackground ? "transparent" : Util.alpha(Color.foreground, 0.1)
   // Obsidian body: lit a touch from above, deepening toward the lip, with a
   // hairline rim. All derived from the theme, all vector (stays crisp).
-  readonly property color surfaceTop: Qt.tint(surface, Util.alpha(Color.foreground, blackBackground ? 0.05 : 0.055))
-  readonly property color surfaceBottom: blackBackground ? "#000000" : Qt.darker(surface, 1.28)
+  readonly property color surfaceTop: glassMode ? Qt.tint(surface, Util.alpha(accentColor, 0.12)) : Qt.tint(surface, Util.alpha(Color.foreground, blackBackground ? 0.05 : 0.055))
+  readonly property color surfaceBottom: glassMode ? Qt.darker(surface, 1.15) : (blackBackground ? "#000000" : Qt.darker(surface, 1.28))
   function bodyAt(t) {
     var a = surfaceTop, b = surfaceBottom
     return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1)
@@ -142,7 +159,7 @@ Item {
   // so a view is never drawn cut off by a shape still growing towards it.
   readonly property bool shapeSettled: Math.abs(stage.w - s(viewSize.w)) < s(18)
     && Math.abs(stage.h - s(viewSize.h)) < s(12)
-  function showing(name) { return view === name && shapeSettled }
+  function showing(name) { return view === name }
   function f(px) { return Math.max(6, Math.round(px * Style.fontScale * scaleFactor)) }
 
   // Nothing announces itself for the first moments after (re)load, so the
@@ -1010,7 +1027,7 @@ Item {
   // bubble was clicked).
   property string openFocus: ""
   property var hud: null
-  readonly property bool hovered: islandHover.hovered
+  readonly property bool hovered: islandHover.hovered || leftSatHovered || rightSatHovered
 
   readonly property string view: Model.viewFor({
     userExpanded: userExpanded,
@@ -1053,6 +1070,10 @@ Item {
   function expand() {
     hud = null
     userExpanded = true
+    if (!openFocus && !calendarOpen) {
+      openFocus = "calendar"
+      calendarOpen = true
+    }
     // Opened without the pointer on it (IPC, keybind): close on its own.
     if (!hovered) {
       collapseTimer.interval = 6000
@@ -1252,6 +1273,14 @@ Item {
   IpcHandler {
     target: "dynamic-island"
 
+    function view(name: string): string {
+      root.openFocus = name
+      if (name === "calendar") root.calendarOpen = true
+      else root.calendarOpen = false
+      if (!root.userExpanded) root.expand()
+      return "ok"
+    }
+
     function expand(): string { root.expand(); return "ok" }
     // on | off | toggle: keep a strip free for the island, or let windows
     // fill the top of the screen under it.
@@ -1394,6 +1423,8 @@ Item {
     mask: Region {
       item: island
       Region { item: bubble; intersection: Intersection.Combine }
+      Region { item: leftSatellites; intersection: Intersection.Combine }
+      Region { item: rightSatellites; intersection: Intersection.Combine }
     }
 
     Item {
@@ -1406,9 +1437,9 @@ Item {
       property real h: root.s(root.viewSize.h)
       property real r: root.s(root.viewSize.r)
 
-      Behavior on w { SpringAnimation { spring: 3.4; damping: 0.28; mass: 1.0; epsilon: 0.25 } }
-      Behavior on h { SpringAnimation { spring: 3.4; damping: 0.32; mass: 1.0; epsilon: 0.25 } }
-      Behavior on r { SpringAnimation { spring: 3.4; damping: 0.32; mass: 1.0; epsilon: 0.25 } }
+      Behavior on w { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+      Behavior on h { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+      Behavior on r { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
 
       readonly property real earSize: root.s(9)
 
@@ -1721,6 +1752,18 @@ Item {
             width: root.s(root.slotSize("idle-expanded").w); height: root.s(root.slotSize("idle-expanded").h)
             IdleExpanded { anchors.fill: parent; island: root }
           }
+
+          ViewSlot {
+            active: root.showing("shelf-expanded")
+            width: root.s(root.slotSize("shelf-expanded").w); height: root.s(root.slotSize("shelf-expanded").h)
+            ShelfView { anchors.fill: parent; island: root }
+          }
+
+          ViewSlot {
+            active: root.showing("ports-expanded")
+            width: root.s(root.slotSize("ports-expanded").w); height: root.s(root.slotSize("ports-expanded").h)
+            PortsView { anchors.fill: parent; island: root }
+          }
         }
       }
 
@@ -1764,6 +1807,148 @@ Item {
             if (root.secondary === "inbox") { root.openInbox(); return }
             root.openFocus = root.secondary
             root.expand()
+          }
+        }
+      }
+
+      // ================================================================
+      // Floating Left Satellite Affordances: Calendar, Pomodoro, Media
+      // ================================================================
+      Item {
+        id: leftSatellites
+        width: root.userExpanded ? root.s(44) : 0
+        height: leftCol.implicitHeight
+
+        x: root.snap(island.x - root.s(44) - root.s(16))
+        y: root.snap(island.y + Math.max(root.s(12), (island.height - height) / 2))
+
+        opacity: root.userExpanded ? 1 : 0
+        scale: root.userExpanded ? 1 : 0.8
+        visible: opacity > 0.01
+        enabled: root.userExpanded
+
+        Behavior on x { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+        Behavior on y { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+
+        HoverHandler {
+          onHoveredChanged: root.leftSatHovered = hovered
+        }
+
+        Column {
+          id: leftCol
+          anchors.centerIn: parent
+          spacing: root.s(12)
+
+          SatelliteButton {
+            glyph: "󰃭"
+            tooltipText: "Calendar"
+            isActive: root.view === "calendar-expanded"
+            island: root
+            onClicked: {
+              root.openFocus = "calendar"
+              root.calendarOpen = true
+              root.outputsOpen = false
+              root.inboxOpen = false
+              if (!root.userExpanded) root.expand()
+            }
+          }
+
+          SatelliteButton {
+            glyph: ""
+            tooltipText: "Pomodoro"
+            isActive: root.view === "clock-expanded"
+            island: root
+            onClicked: {
+              root.openFocus = "pomodoro"
+              root.calendarOpen = false
+              root.outputsOpen = false
+              root.inboxOpen = false
+              if (!root.userExpanded) root.expand()
+            }
+          }
+
+          SatelliteButton {
+            glyph: "󰎆"
+            tooltipText: "Now Playing"
+            isActive: root.view === "media-expanded"
+            island: root
+            onClicked: {
+              root.openFocus = "media"
+              root.calendarOpen = false
+              root.outputsOpen = false
+              root.inboxOpen = false
+              if (!root.userExpanded) root.expand()
+            }
+          }
+        }
+      }
+
+      // ================================================================
+      // Floating Right Satellite Affordances: Shelf, Ports, Style / Mode
+      // ================================================================
+      Item {
+        id: rightSatellites
+        width: root.userExpanded ? root.s(44) : 0
+        height: rightCol.implicitHeight
+
+        x: root.snap(island.x + island.width + root.s(16))
+        y: root.snap(island.y + Math.max(root.s(12), (island.height - height) / 2))
+
+        opacity: root.userExpanded ? 1 : 0
+        scale: root.userExpanded ? 1 : 0.8
+        visible: opacity > 0.01
+        enabled: root.userExpanded
+
+        Behavior on x { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+        Behavior on y { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+
+        HoverHandler {
+          onHoveredChanged: root.rightSatHovered = hovered
+        }
+
+        Column {
+          id: rightCol
+          anchors.centerIn: parent
+          spacing: root.s(12)
+
+          SatelliteButton {
+            glyph: "󰉋"
+            tooltipText: "File Shelf"
+            isActive: root.view === "shelf-expanded"
+            island: root
+            onClicked: {
+              root.openFocus = "shelf"
+              root.calendarOpen = false
+              root.outputsOpen = false
+              root.inboxOpen = false
+              if (!root.userExpanded) root.expand()
+            }
+          }
+
+          SatelliteButton {
+            glyph: "󰈀"
+            tooltipText: "Port Watcher"
+            isActive: root.view === "ports-expanded"
+            island: root
+            onClicked: {
+              root.openFocus = "ports"
+              root.calendarOpen = false
+              root.outputsOpen = false
+              root.inboxOpen = false
+              if (!root.userExpanded) root.expand()
+            }
+          }
+
+          SatelliteButton {
+            glyph: root.glassMode ? "󰒓" : "󰍹"
+            tooltipText: root.glassMode ? "Raycast Glass" : "Sharp Mode"
+            isActive: false
+            island: root
+            onClicked: root.toggleGlassMode()
           }
         }
       }

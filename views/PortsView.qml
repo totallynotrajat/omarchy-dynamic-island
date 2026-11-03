@@ -18,7 +18,7 @@ Item {
   Process {
     id: portScanner
     running: true
-    command: ["sh", "-c", "ss -tlpn | awk 'NR>1 && /LISTEN/ { split($4, a, \":\"); port=a[length(a)]; match($0, /users:\\(\\(\"([^\"]+)\",pid=([0-9]+)/, m); if (port ~ /^[0-9]+$/ && port != \"53\" && port != \"631\") printf \"%s|%s|%s\\n\", port, (m[1]?m[1]:\"process\"), (m[2]?m[2]:\"-\") }' | sort -n -u -t'|' -k1,1"]
+    command: ["python3", "/home/tnr/.config/omarchy/plugins/omarchy-dynamic-island/sources/smart-port-scanner.py"]
     stdout: StdioCollector {
       onStreamFinished: {
         var raw = String(text || "").trim()

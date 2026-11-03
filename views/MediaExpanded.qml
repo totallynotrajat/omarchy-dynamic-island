@@ -80,24 +80,63 @@ Item {
     fontFamily: island.fontFamily
   }
 
-  Visualizer {
-    id: viz
+  // Card-Background Integrated Audio Spectrum Visualizer
+  // Anchored to the bottom floor of the card and fading ~halfway up
+  Row {
+    id: bgAuraVisualizer
+    anchors.bottom: parent.bottom
+    anchors.bottomMargin: island.s(2)
+    anchors.left: parent.left
+    anchors.leftMargin: island.s(12)
     anchors.right: parent.right
-    anchors.rightMargin: view.pad + island.s(2)
-    anchors.verticalCenter: art.verticalCenter
-    playing: island.mediaPlaying
-    color: island.mediaTint
-    barWidth: island.s(3)
-    maxHeight: island.s(20)
+    anchors.rightMargin: island.s(12)
+    height: island.s(60)
+    spacing: island.s(4)
+    z: 0
+    opacity: island.mediaPlaying ? 0.35 : 0.12
+    Behavior on opacity { NumberAnimation { duration: 300 } }
+
+    Repeater {
+      id: bgBars
+      model: 28
+
+      Rectangle {
+        required property int index
+        property real barLevel: 0.35
+        anchors.bottom: parent.bottom
+        width: Math.max(2, (bgAuraVisualizer.width - 27 * island.s(4)) / 28)
+        radius: island.s(2)
+        height: Math.max(island.s(4), island.s(55) * (island.mediaPlaying ? barLevel : 0.12))
+        gradient: Gradient {
+          GradientStop { position: 0.0; color: "transparent" }
+          GradientStop { position: 0.45; color: Util.alpha(island.mediaTint || island.accentColor, 0.25) }
+          GradientStop { position: 1.0; color: Util.alpha(island.mediaTint || island.accentColor, 0.75) }
+        }
+        Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.InOutSine } }
+      }
+    }
+
+    Timer {
+      interval: 180
+      repeat: true
+      running: island.mediaPlaying && view.visible
+      onTriggered: {
+        for (var i = 0; i < bgBars.count; i++) {
+          var b = bgBars.itemAt(i)
+          if (b) b.barLevel = 0.15 + Math.random() * 0.85
+        }
+      }
+    }
   }
 
   Column {
     anchors.left: art.right
     anchors.leftMargin: island.s(14)
-    anchors.right: viz.left
-    anchors.rightMargin: island.s(14)
+    anchors.right: parent.right
+    anchors.rightMargin: view.pad
     anchors.verticalCenter: art.verticalCenter
     spacing: island.s(3)
+    z: 2
 
     Text {
       width: parent.width

@@ -1157,6 +1157,12 @@ Item {
       if (hasMedia) mediaToggle()
       return
     }
+    if (button === Qt.RightButton && (view === "idle" || view === "idle-hover")) {
+      if (idleItems.length > 1) {
+        idleIndex = (idleIndex + 1) % idleItems.length
+      }
+      return
+    }
     // The bell owns the pill when nothing else is live: open the inbox.
     if (!userExpanded && primary === "inbox") {
       openInbox()

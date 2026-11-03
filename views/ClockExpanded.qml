@@ -26,7 +26,8 @@ Item {
   // --------------------------------------------------------------------------
   Column {
     x: view.pad
-    anchors.verticalCenter: parent.verticalCenter
+    anchors.top: parent.top
+    anchors.topMargin: island.s(48)
     spacing: island.s(3)
 
     // Top badges: Session Label, Streak, Daily Goal
@@ -53,35 +54,9 @@ Item {
         color: island.orangeColor
       }
 
-      // Jump to Calendar
-      Rectangle {
-        height: island.s(20)
-        width: calJumpLabel.implicitWidth + island.s(12)
-        radius: height / 2
-        color: Util.alpha(island.accentColor, 0.18)
-
-        Text {
-          id: calJumpLabel
-          anchors.centerIn: parent
-          text: "󰃭 Calendar"
-          textFormat: Text.PlainText
-          renderType: Text.NativeRendering
-          font.family: island.textFamily
-          font.pixelSize: island.f(10)
-          font.weight: Font.DemiBold
-          color: island.accentColor
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          cursorShape: Qt.PointingHandCursor
-          onClicked: island.openCalendar()
-        }
-      }
-
       Text {
         visible: isFocusd && clocks.dailyGoal !== "" && clocks.dailyGoal !== "0s"
-        text: "󰓾 " + clocks.dailyGoal
+        text: "󱳾 " + clocks.dailyGoal
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island.fontFamily
@@ -138,12 +113,13 @@ Item {
   Row {
     anchors.right: parent.right
     anchors.rightMargin: view.pad - island.s(4)
-    anchors.verticalCenter: parent.verticalCenter
+    anchors.top: parent.top
+    anchors.topMargin: island.s(52)
     spacing: island.s(8)
 
     // +5 min (or +1 min)
     IconButton {
-      glyph: isFocusd ? "󰐕" : (view.timer ? "󰐕" : "󰑓")
+      glyph: isFocusd ? "󱐕" : (view.timer ? "󱐕" : "󱑓")
       glyphSize: island.f(18)
       color: island.fg
       fontFamily: island.fontFamily
@@ -163,7 +139,7 @@ Item {
 
       Text {
         anchors.centerIn: parent
-        text: view.paused ? "󰐊" : "󰏤"
+        text: view.paused ? "󱐊" : "󰏤"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island.fontFamily
@@ -182,7 +158,7 @@ Item {
     // Skip to next session (Focusd)
     IconButton {
       visible: isFocusd
-      glyph: "󰒭"
+      glyph: "󱯭"
       glyphSize: island.f(18)
       color: island.fg
       fontFamily: island.fontFamily
@@ -191,7 +167,7 @@ Item {
 
     // Reset / Cancel
     IconButton {
-      glyph: isFocusd ? "󰑓" : "󰅖"
+      glyph: isFocusd ? "󱑓" : "󰕖"
       glyphSize: island.f(18)
       color: island.fg
       fontFamily: island.fontFamily

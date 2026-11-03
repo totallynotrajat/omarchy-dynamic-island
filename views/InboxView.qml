@@ -25,7 +25,8 @@ Item {
 
   Text {
     visible: view.items.length === 0
-    anchors.centerIn: parent
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: island.s(56)
     text: "No notifications"
     textFormat: Text.PlainText
     renderType: Text.NativeRendering
@@ -38,7 +39,7 @@ Item {
     id: list
     visible: view.items.length > 0
     x: view.pad
-    y: view.pad
+    y: island.s(44)
     width: parent.width - view.pad * 2
     height: clearAll.y - island.s(10) - y
     clip: true

@@ -72,7 +72,7 @@ Item {
   AlbumArt {
     id: art
     x: view.pad
-    y: island.s(20)
+    y: island.s(48)
     width: island.s(58)
     height: width
     source: island.mediaArt

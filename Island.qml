@@ -670,13 +670,11 @@ Item {
   // Opens the list of waiting notifications (bell click, or Omarchy's
   // notification-history keybind).
   function openInbox() {
-    hud = null
-    inboxOpen = true
-    userExpanded = true
-    if (!hovered) {
-      collapseTimer.interval = 8000
-      collapseTimer.restart()
+    if (userExpanded && currentFeature === "inbox") {
+      collapse()
+      return
     }
+    showFeature("inbox")
   }
 
   // An icon URL that will actually load, or "" for the glyph fallback.
@@ -730,34 +728,20 @@ Item {
   readonly property bool calendarTyping: calendarAdding && view === "calendar-expanded"
 
   function openFocusd() {
-    hud = null
-    inboxOpen = false
-    outputsOpen = false
-    calendarOpen = false
-    openFocus = "timer"
-    userExpanded = true
-    if (!hovered) {
-      collapseTimer.interval = 10000
-      collapseTimer.restart()
-    }
-  }
-
-  function openCalendar() {
-    if (userExpanded && view === "calendar-expanded") {
+    if (userExpanded && currentFeature === "focus") {
       collapse()
       return
     }
-    hud = null
-    inboxOpen = false
-    outputsOpen = false
-    calendarOpen = true
-    userExpanded = true
-    // No calendars yet: open straight into the field.
-    calendarAdding = calendarSource.sources.length === 0 && calendarSource.googleEvents.length === 0
-    if (!hovered) {
-      collapseTimer.interval = 10000
-      collapseTimer.restart()
+    showFeature("focus")
+  }
+
+  function openCalendar() {
+    if (userExpanded && currentFeature === "calendar") {
+      collapse()
+      return
     }
+    showFeature("calendar")
+    calendarAdding = calendarSource.sources.length === 0 && calendarSource.googleEvents.length === 0
   }
 
   // Calendar links can also live in this plugin's shell.json entry
@@ -1022,6 +1006,52 @@ Item {
   // Which activity an opened island is about (the bubble's, when the
   // bubble was clicked).
   property string openFocus: ""
+  property string activeFeature: "calendar"
+  readonly property string currentFeature: {
+    if (view === "calendar-expanded") return "calendar"
+    if (view === "clock-expanded") return "focus"
+    if (view === "media-expanded") return "media"
+    if (view === "inbox-expanded") return "inbox"
+    if (view === "idle-expanded") return "overview"
+    return activeFeature || "calendar"
+  }
+
+  function showFeature(feature) {
+    hud = null
+    activeFeature = feature
+    userExpanded = true
+    if (feature === "calendar") {
+      calendarOpen = true
+      inboxOpen = false
+      outputsOpen = false
+      openFocus = "calendar"
+    } else if (feature === "focus") {
+      calendarOpen = false
+      inboxOpen = false
+      outputsOpen = false
+      openFocus = "timer"
+    } else if (feature === "media") {
+      calendarOpen = false
+      inboxOpen = false
+      outputsOpen = false
+      openFocus = "media"
+    } else if (feature === "inbox") {
+      calendarOpen = false
+      inboxOpen = true
+      outputsOpen = false
+      openFocus = "inbox"
+    } else if (feature === "overview") {
+      calendarOpen = false
+      inboxOpen = false
+      outputsOpen = false
+      openFocus = "idle"
+    }
+    if (!hovered) {
+      collapseTimer.interval = 8000
+      collapseTimer.restart()
+    }
+  }
+
   property var hud: null
   readonly property bool hovered: islandHover.hovered
 
@@ -1031,6 +1061,7 @@ Item {
     outputsOpen: outputsOpen,
     calendarOpen: calendarOpen,
     focus: openFocus,
+    activeFeature: activeFeature,
     hasMedia: hasMedia,
     recording: recordingActivity,
     hud: hud,
@@ -1066,6 +1097,11 @@ Item {
   function expand() {
     hud = null
     userExpanded = true
+    if (!openFocus && !calendarOpen && !inboxOpen && !outputsOpen) {
+      calendarOpen = true
+      openFocus = "calendar"
+      activeFeature = "calendar"
+    }
     // Opened without the pointer on it (IPC, keybind): close on its own.
     if (!hovered) {
       collapseTimer.interval = 6000
@@ -1097,7 +1133,7 @@ Item {
 
   Timer {
     id: hoverExpandTimer
-    interval: 380
+    interval: 140
     onTriggered: if (root.hovered && !root.userExpanded) root.expand()
   }
 
@@ -1588,6 +1624,21 @@ Item {
             pulse: root.edgeState.pulse === true
             pulsePeriod: root.edgeState.period || 1400
             sweepKey: root.edgeSweep
+          }
+
+          // Boring Notch Segmented Tab Switcher: 1-click feature access
+          IslandNav {
+            id: navBar
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: root.snap(root.s(8))
+            island: root
+            z: 100
+            visible: root.userExpanded && root.shapeSettled
+              && root.view !== "notification" && root.view !== "notification-actions"
+              && root.view !== "hud-track" && root.view !== "hud-toast"
+              && root.view !== "recording-expanded" && root.view !== "recording-media-expanded"
+            opacity: visible ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
           }
 
           // The resting face follows the island's own size (it never waits

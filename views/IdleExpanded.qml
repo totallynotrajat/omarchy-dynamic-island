@@ -19,7 +19,7 @@ Item {
 
   Column {
     x: view.pad
-    y: island.s(18)
+    y: island.s(48)
     spacing: island.s(1)
 
     Text {
@@ -61,7 +61,7 @@ Item {
   Column {
     anchors.right: parent.right
     anchors.rightMargin: view.pad
-    y: island.s(20)
+    y: island.s(48)
     spacing: island.s(2)
     visible: island.hasBattery
 

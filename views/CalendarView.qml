@@ -60,7 +60,7 @@ Item {
   Item {
     id: topNav
     x: view.pad
-    y: island.s(10)
+    y: island.s(42)
     width: parent.width - view.pad * 2
     height: island.s(28)
 

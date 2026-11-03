@@ -123,23 +123,53 @@ Item {
     function onAccentChanged() { themeColorsFile.reload() }
   }
 
-  readonly property color surface: blackBackground ? "#000000" : Color.background
-  readonly property color fg: blackBackground ? "#f5f5f7" : Color.foreground
+  // Graceful color transitions on theme switch
+  property color activeBackground: Color.background
+  property color activeForeground: Color.foreground
+  property color activeAccent: Color.accent
+  property color activeUrgent: Color.urgent
+
+  Behavior on activeBackground { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
+  Behavior on activeForeground { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
+  Behavior on activeAccent { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
+  Behavior on activeUrgent { ColorAnimation { duration: 450; easing.type: Easing.InOutCubic } }
+
+  readonly property color surface: blackBackground ? "#000000" : activeBackground
+  readonly property color fg: blackBackground ? "#f5f5f7" : activeForeground
   readonly property color fgDim: Util.alpha(fg, 0.6)
-  readonly property color accentColor: Color.accent
-  readonly property color urgentColor: Color.urgent
-  readonly property color greenColor: themeColors.color2 || Color.accent
-  readonly property color orangeColor: themeColors.color3 || Color.urgent
-  readonly property color outline: blackBackground ? "transparent" : Util.alpha(Color.foreground, 0.1)
-  // Obsidian body: lit a touch from above, deepening toward the lip, with a
-  // hairline rim. All derived from the theme, all vector (stays crisp).
-  readonly property color surfaceTop: glassMode ? Qt.tint(surface, Util.alpha(accentColor, 0.12)) : Qt.tint(surface, Util.alpha(Color.foreground, blackBackground ? 0.05 : 0.055))
-  readonly property color surfaceBottom: glassMode ? Qt.darker(surface, 1.15) : (blackBackground ? "#000000" : Qt.darker(surface, 1.28))
+  readonly property color accentColor: activeAccent
+  readonly property color urgentColor: activeUrgent
+  readonly property color greenColor: themeColors.color2 || activeAccent
+  readonly property color orangeColor: themeColors.color3 || activeUrgent
+  readonly property color outline: blackBackground ? "transparent" : Util.alpha(activeForeground, 0.1)
+
+  // Blend in smoothly when idle; enrich into frosted glass when active/expanded
+  readonly property bool isIdleState: (view === "idle" || view === "idle-hover") && !userExpanded
+
+  readonly property color rawSurfaceTop: isIdleState
+    ? (hovered ? Util.alpha(surface, 0.65) : Util.alpha(surface, 0.38))
+    : (glassMode ? Qt.tint(surface, Util.alpha(accentColor, 0.14)) : Qt.tint(surface, Util.alpha(activeForeground, blackBackground ? 0.05 : 0.055)))
+
+  readonly property color rawSurfaceBottom: isIdleState
+    ? (hovered ? Util.alpha(surface, 0.55) : Util.alpha(surface, 0.28))
+    : (glassMode ? Qt.darker(surface, 1.15) : (blackBackground ? "#000000" : Qt.darker(surface, 1.28)))
+
+  property color surfaceTop: rawSurfaceTop
+  property color surfaceBottom: rawSurfaceBottom
+  Behavior on surfaceTop { ColorAnimation { duration: 380; easing.type: Easing.InOutCubic } }
+  Behavior on surfaceBottom { ColorAnimation { duration: 380; easing.type: Easing.InOutCubic } }
+
   function bodyAt(t) {
     var a = surfaceTop, b = surfaceBottom
     return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1)
   }
-  readonly property color rim: Util.alpha(Color.foreground, blackBackground ? 0.08 : 0.1)
+
+  readonly property color rawRim: isIdleState
+    ? (hovered ? Util.alpha(activeForeground, 0.1) : Util.alpha(activeForeground, 0.03))
+    : Util.alpha(activeForeground, blackBackground ? 0.08 : 0.12)
+
+  property color rim: rawRim
+  Behavior on rim { ColorAnimation { duration: 380; easing.type: Easing.InOutCubic } }
   // Numbers, time and icons in the theme's (Nerd) monospace; words in iA
   // Writer Quattro, which Omarchy ships and which sits well beside a mono.
   // "textFont": "theme" keeps everything in the theme font.
@@ -1441,7 +1471,8 @@ Item {
       Behavior on h { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
       Behavior on r { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
 
-      readonly property real earSize: root.s(9)
+      readonly property real earSize: root.isIdleState ? root.s(3) : root.s(9)
+      Behavior on earSize { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
 
       // Notch style: the body and its two concave "ears" (the fillets that
       // blend it into the screen edge) are one continuous outline, so there

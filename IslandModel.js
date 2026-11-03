@@ -29,7 +29,7 @@ var sizes = {
   "calendar":      { w: 300, h: 32, r: 16 },
   "clock-expanded": { w: 420, h: 136, r: 38 },
   "activity-expanded": { w: 392, h: 104, r: 38 },
-  "calendar-expanded": { w: 520, h: 268, r: 38 },
+  "calendar-expanded": { w: 560, h: 290, r: 38 },
   "shelf-expanded": { w: 440, h: 210, r: 38 },
   "ports-expanded": { w: 450, h: 230, r: 38 },
   "notification-actions": { w: 404, h: 118, r: 38 }

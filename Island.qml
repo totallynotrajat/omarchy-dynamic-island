@@ -49,6 +49,39 @@ Item {
   readonly property string monitorSetting: String(setting("monitor", "primary"))
   readonly property bool expandOnHover: setting("expandOnHover", false) === true
   readonly property string clockFormat: String(setting("clockFormat", "h:mm AP"))
+  readonly property var clockFormats: [
+    "h:mm AP",
+    "HH:mm",
+    "dddd h:mm AP",
+    "dddd HH:mm",
+    "ddd d MMM h:mm AP",
+    "ddd d MMM HH:mm",
+    "d MMMM 'W'ww yyyy",
+    "yyyy-MM-dd HH:mm"
+  ]
+  property string activeClockFormat: clockFormat
+  onClockFormatChanged: activeClockFormat = clockFormat
+
+  readonly property string formattedClockText: {
+    idleClock.date
+    return Qt.formatDateTime(idleClock.date, activeClockFormat)
+  }
+
+  function cycleClockFormat() {
+    var idx = clockFormats.indexOf(activeClockFormat)
+    if (idx === -1) idx = 0
+    var next = clockFormats[(idx + 1) % clockFormats.length]
+    activeClockFormat = next
+    saveSettings({ clockFormat: next })
+    showHud({
+      key: "clockFormat", layout: "label",
+      label: "Clock Format",
+      icon: "󱑂",
+      valueText: next,
+      color: accentColor,
+      duration: 1600
+    })
+  }
   readonly property bool showVolume: setting("volume", true) !== false
   readonly property bool showBrightness: setting("brightness", true) !== false
   readonly property bool showCharging: setting("charging", true) !== false
@@ -981,10 +1014,10 @@ Item {
 
   TextMetrics {
     id: idleMetrics
-    font.family: root.fontFamily
+    font.family: root.textFamily || root.fontFamily
     font.pixelSize: root.f(12)
     font.bold: true
-    text: root.idleItem ? root.idleItem.text : ""
+    text: root.formattedClockText + (clocks && clocks.timerActive ? "  00:00" : "")
   }
 
   // ------------------------------------------------------------------
@@ -1158,9 +1191,7 @@ Item {
       return
     }
     if (button === Qt.RightButton && (view === "idle" || view === "idle-hover")) {
-      if (idleItems.length > 1) {
-        idleIndex = (idleIndex + 1) % idleItems.length
-      }
+      cycleClockFormat()
       return
     }
     // The bell owns the pill when nothing else is live: open the inbox.

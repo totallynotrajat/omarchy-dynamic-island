@@ -3,9 +3,9 @@ import Quickshell
 import Quickshell.Io
 import "../IslandModel.js" as Model
 
-// Timer and stopwatch live activities.
-// Integrated with Focusd (bibek.focusd) as a first-class Pomodoro engine
-// while maintaining fallback wall-clock timers and stopwatch.
+// Timer, Stopwatch, and Pomodoro engine.
+// Supports native Pomodoro cycles (Work 25m, Short Break 5m, Long Break 15m)
+// and integrates with the focusd daemon when actively running.
 Item {
   id: clocks
 
@@ -14,24 +14,18 @@ Item {
 
   property double now: Date.now()
 
-  // ---- Focusd Pomodoro Integration
+  // ---- Focusd Daemon Source (only active when running or progress > 0)
   FocusdSource {
     id: focusd
   }
 
   readonly property var focusdSource: focusd
   readonly property bool isFocusd: focusd.active
-  readonly property string focusSession: focusd.session
-  readonly property string focusSessionLabel: focusd.sessionLabel
-  readonly property string focusNextSessionLabel: focusd.nextSessionLabel
-  readonly property string focusRemainingText: focusd.remainingText
-  readonly property int currentStreak: focusd.currentStreak
-  readonly property string dailyGoal: focusd.dailyGoal
-  readonly property int sessionsToday: focusd.sessionsToday
-  readonly property string focusedToday: focusd.focusedToday
-  readonly property int completedSessions: focusd.completedSessions
-  readonly property int workSessionsBeforeLongBreak: focusd.workSessionsBeforeLongBreak
-  readonly property bool hasSessionData: focusd.hasSessionData
+
+  // ---- Built-in Pomodoro Tracking
+  property int pomodoroCompleted: 0
+  property int pomodoroTarget: 4
+  property string pomodoroPhase: "work" // "work", "short-break", "long-break"
 
   // ---- Standard Wall-Clock Fallback Timer
   property double rawTimerEnd: 0          // epoch ms while running
@@ -45,11 +39,15 @@ Item {
   readonly property real rawTimerProgress: rawTimerTotal > 0 ? Math.max(0, Math.min(1, 1 - rawTimerLeft / rawTimerTotal)) : 0
 
   // Unified timer interface consumed by Island.qml & compact/expanded views
-  readonly property bool timerActive: focusd.active || rawTimerActive
-  readonly property bool timerPaused: focusd.active ? focusd.paused : rawTimerPaused
-  readonly property real timerProgress: focusd.active ? focusd.progress : rawTimerProgress
-  readonly property double timerLeft: focusd.active ? (focusd.remainingSeconds * 1000) : rawTimerLeft
-  readonly property string timerLabel: focusd.active ? focusd.sessionLabel : (rawTimerLabel || "Timer")
+  // ONLY true when a timer is genuinely active or running
+  readonly property bool timerActive: isFocusd || rawTimerActive
+  readonly property bool timerPaused: isFocusd ? focusd.paused : rawTimerPaused
+  readonly property real timerProgress: isFocusd ? focusd.progress : rawTimerProgress
+  readonly property double timerLeft: isFocusd ? (focusd.remainingSeconds * 1000) : (rawTimerActive ? rawTimerLeft : 1500000)
+  readonly property string timerLabel: isFocusd ? focusd.sessionLabel : (rawTimerLabel || (pomodoroPhase === "short-break" ? "Short Break" : (pomodoroPhase === "long-break" ? "Long Break" : "Pomodoro")))
+
+  readonly property bool isPomodoro: isFocusd || timerLabel === "Pomodoro" || timerLabel === "Work" || timerLabel === "Short Break" || timerLabel === "Long Break"
+  readonly property int completedSessions: isFocusd ? focusd.completedSessions : pomodoroCompleted
 
   // ---- stopwatch
   property double stopwatchStart: 0    // epoch ms of the current run
@@ -71,10 +69,13 @@ Item {
 
   function startTimer(seconds, label) {
     var sec = Number(seconds) || 1500
-    // If standard pomodoro interval (25m) or requested label is Pomodoro, route to focusd
-    if (sec === 1500 || String(label || "").toLowerCase().indexOf("pomo") !== -1 || String(label || "").toLowerCase().indexOf("focus") !== -1) {
+    var lbl = String(label || "Timer")
+
+    // If focusd is present and label indicates pomodoro, try starting focusd
+    if (lbl.toLowerCase().indexOf("pomo") !== -1 || lbl.toLowerCase().indexOf("focus") !== -1) {
       focusd.start()
-      return
+      // Also start raw timer as robust fallback/parallel tracker
+      pomodoroPhase = "work"
     }
 
     var ms = Math.max(1, sec) * 1000
@@ -83,16 +84,23 @@ Item {
     rawTimerEnd = now + ms
     rawTimerPaused = false
     rawTimerLeftPaused = 0
-    rawTimerLabel = String(label || "")
+    rawTimerLabel = lbl
     save()
   }
 
+  function startPomodoro() {
+    startTimer(25 * 60, "Pomodoro")
+  }
+
   function toggleTimer() {
-    if (focusd.active) {
+    if (isFocusd) {
       focusd.toggle()
       return
     }
-    if (!rawTimerActive) return
+    if (!rawTimerActive) {
+      startPomodoro()
+      return
+    }
     now = Date.now()
     if (rawTimerPaused) {
       rawTimerEnd = now + rawTimerLeftPaused
@@ -105,12 +113,43 @@ Item {
     save()
   }
 
+  function skipPomodoro() {
+    if (isFocusd) {
+      focusd.skip()
+      return
+    }
+    if (pomodoroPhase === "work") {
+      pomodoroCompleted++
+      if (pomodoroCompleted % 4 === 0) {
+        pomodoroPhase = "long-break"
+        startTimer(15 * 60, "Long Break")
+      } else {
+        pomodoroPhase = "short-break"
+        startTimer(5 * 60, "Short Break")
+      }
+    } else {
+      pomodoroPhase = "work"
+      startTimer(25 * 60, "Pomodoro")
+    }
+  }
+
+  function resetPomodoro() {
+    if (isFocusd) {
+      focusd.reset()
+    }
+    pomodoroPhase = "work"
+    cancelTimer()
+  }
+
   function addToTimer(seconds) {
-    if (focusd.active) {
+    if (isFocusd) {
       focusd.addMinutes(Math.max(1, Math.round(seconds / 60)))
       return
     }
-    if (!rawTimerActive) return
+    if (!rawTimerActive) {
+      startPomodoro()
+      return
+    }
     var ms = seconds * 1000
     if (rawTimerPaused) rawTimerLeftPaused += ms
     else rawTimerEnd += ms
@@ -119,7 +158,7 @@ Item {
   }
 
   function cancelTimer() {
-    if (focusd.active) {
+    if (isFocusd) {
       focusd.reset()
     }
     rawTimerEnd = 0
@@ -130,37 +169,52 @@ Item {
     save()
   }
 
-  function skipFocusd() {
-    focusd.skip()
-  }
-
-  function startFocusd() {
-    focusd.start()
-  }
-
-  function resetFocusd() {
-    focusd.reset()
-  }
-
-  function addMinutesFocusd(mins) {
-    focusd.addMinutes(mins)
-  }
-
   function timerFinished() {
-    var label = rawTimerLabel
-    cancelTimer()
-    if (!island) return
-    island.toast({
-      title: label || "Timer",
-      body: "Time's up",
-      icon: "󰀠",
-      color: "accent",
-      duration: 12000
-    })
-    if (island.setting("timerSound", true) !== false)
+    var label = rawTimerLabel || "Timer"
+    if (label === "Pomodoro" || label === "Work") {
+      pomodoroCompleted++
+      var isLong = pomodoroCompleted % 4 === 0
+      pomodoroPhase = isLong ? "long-break" : "short-break"
+      cancelTimer()
+      if (island) {
+        island.toast({
+          title: "Focus Session Complete",
+          body: isLong ? "Great job! Time for a 15 min long break." : "Take a 5 min break.",
+          icon: "",
+          color: "green",
+          duration: 12000
+        })
+      }
+    } else if (label === "Short Break" || label === "Long Break") {
+      pomodoroPhase = "work"
+      cancelTimer()
+      if (island) {
+        island.toast({
+          title: "Break Ended",
+          body: "Ready to focus for 25 minutes?",
+          icon: "",
+          color: "accent",
+          duration: 12000
+        })
+      }
+    } else {
+      cancelTimer()
+      if (island) {
+        island.toast({
+          title: label,
+          body: "Time's up",
+          icon: "󰀠",
+          color: "accent",
+          duration: 12000
+        })
+      }
+    }
+
+    if (island && island.setting("timerSound", true) !== false) {
       Quickshell.execDetached(["sh", "-c",
         "for i in 1 2 3; do pw-play /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga 2>/dev/null " +
         "|| paplay /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga 2>/dev/null; done"])
+    }
   }
 
   function toggleStopwatch() {
@@ -190,6 +244,7 @@ Item {
     stateFile.setText(JSON.stringify({
       timerEnd: rawTimerEnd, timerLeftPaused: rawTimerLeftPaused, timerTotal: rawTimerTotal,
       timerPaused: rawTimerPaused, timerLabel: rawTimerLabel,
+      pomodoroCompleted: pomodoroCompleted, pomodoroPhase: pomodoroPhase,
       stopwatchStart: stopwatchStart, stopwatchBanked: stopwatchBanked, stopwatchRunning: stopwatchRunning
     }) + "\n")
   }
@@ -210,6 +265,8 @@ Item {
       clocks.rawTimerTotal = Number(s.timerTotal) || 0
       clocks.rawTimerPaused = s.timerPaused === true
       clocks.rawTimerLabel = String(s.timerLabel || "")
+      clocks.pomodoroCompleted = Number(s.pomodoroCompleted) || 0
+      clocks.pomodoroPhase = String(s.pomodoroPhase || "work")
       clocks.stopwatchStart = Number(s.stopwatchStart) || 0
       clocks.stopwatchBanked = Number(s.stopwatchBanked) || 0
       clocks.stopwatchRunning = s.stopwatchRunning === true

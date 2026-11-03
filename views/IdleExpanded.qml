@@ -19,7 +19,7 @@ Item {
 
   Column {
     x: view.pad
-    y: island.s(48)
+    y: island.s(18)
     spacing: island.s(1)
 
     Text {
@@ -61,7 +61,7 @@ Item {
   Column {
     anchors.right: parent.right
     anchors.rightMargin: view.pad
-    y: island.s(48)
+    y: island.s(20)
     spacing: island.s(2)
     visible: island.hasBattery
 
@@ -99,7 +99,7 @@ Item {
       model: [
         { label: "5 min", glyph: "󰔛", seconds: 300 },
         { label: "15 min", glyph: "󰔛", seconds: 900 },
-        { label: "Focus 25m", glyph: "", seconds: 1500 },
+        { label: "25 min", glyph: "󰔛", seconds: 1500 },
         { label: "Stopwatch", glyph: "󱎫", seconds: 0 },
         { label: "", glyph: "󰃭", seconds: -1 }
       ]
@@ -136,8 +136,7 @@ Item {
           cursorShape: Qt.PointingHandCursor
           onClicked: {
             if (chip.modelData.seconds < 0) { island.openCalendar(); return }
-            if (chip.modelData.seconds === 1500) { island.clocks.startFocusd(); island.openFocusd(); return }
-            else if (chip.modelData.seconds > 0) island.clocks.startTimer(chip.modelData.seconds, "")
+            if (chip.modelData.seconds > 0) island.clocks.startTimer(chip.modelData.seconds, chip.modelData.seconds === 1500 ? "Pomodoro" : "")
             else island.clocks.toggleStopwatch()
             island.collapse()
           }

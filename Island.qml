@@ -44,7 +44,7 @@ Item {
   readonly property bool blackBackground: setting("background", "theme") === "black"
   readonly property bool idleHidden: setting("idle", "pill") === "hidden"
   readonly property real scaleFactor: Math.max(0.6, Math.min(2, Number(setting("scale", 1)) || 1))
-  readonly property int topMargin: 0
+  readonly property int topMargin: notch ? 0 : s(Number(setting("topMargin", 6)))
   readonly property bool reserveSpace: setting("reserveSpace", true) !== false
   readonly property string monitorSetting: String(setting("monitor", "primary"))
   readonly property bool expandOnHover: setting("expandOnHover", false) === true
@@ -670,11 +670,13 @@ Item {
   // Opens the list of waiting notifications (bell click, or Omarchy's
   // notification-history keybind).
   function openInbox() {
-    if (userExpanded && currentFeature === "inbox") {
-      collapse()
-      return
+    hud = null
+    inboxOpen = true
+    userExpanded = true
+    if (!hovered) {
+      collapseTimer.interval = 8000
+      collapseTimer.restart()
     }
-    showFeature("inbox")
   }
 
   // An icon URL that will actually load, or "" for the glyph fallback.
@@ -727,21 +729,22 @@ Item {
   property bool calendarAdding: false
   readonly property bool calendarTyping: calendarAdding && view === "calendar-expanded"
 
-  function openFocusd() {
-    if (userExpanded && currentFeature === "focus") {
-      collapse()
-      return
-    }
-    showFeature("focus")
-  }
-
   function openCalendar() {
-    if (userExpanded && currentFeature === "calendar") {
+    if (userExpanded && calendarOpen) {
       collapse()
       return
     }
-    showFeature("calendar")
-    calendarAdding = calendarSource.sources.length === 0 && calendarSource.googleEvents.length === 0
+    hud = null
+    inboxOpen = false
+    outputsOpen = false
+    calendarOpen = true
+    userExpanded = true
+    // No calendars yet: open straight into the field.
+    calendarAdding = calendarSource.sources.length === 0
+    if (!hovered) {
+      collapseTimer.interval = 10000
+      collapseTimer.restart()
+    }
   }
 
   // Calendar links can also live in this plugin's shell.json entry
@@ -895,10 +898,6 @@ Item {
     precision: SystemClock.Minutes
   }
 
-  readonly property string defaultClockText: {
-    return Qt.formatDateTime(idleClock.date, "ddd d MMM h:mm AP")
-  }
-
   readonly property var idleItems: {
     var items = []
     var ampm = clockFormat.indexOf("AP") !== -1
@@ -938,7 +937,7 @@ Item {
     font.family: root.fontFamily
     font.pixelSize: root.f(12)
     font.bold: true
-    text: root.defaultClockText + (root.clocks.timerActive ? "    " + root.clocks.focusRemainingText : "")
+    text: root.idleItem ? root.idleItem.text : ""
   }
 
   // ------------------------------------------------------------------
@@ -1010,52 +1009,6 @@ Item {
   // Which activity an opened island is about (the bubble's, when the
   // bubble was clicked).
   property string openFocus: ""
-  property string activeFeature: "calendar"
-  readonly property string currentFeature: {
-    if (view === "calendar-expanded") return "calendar"
-    if (view === "clock-expanded") return "focus"
-    if (view === "media-expanded") return "media"
-    if (view === "inbox-expanded") return "inbox"
-    if (view === "idle-expanded") return "overview"
-    return activeFeature || "calendar"
-  }
-
-  function showFeature(feature) {
-    hud = null
-    activeFeature = feature
-    userExpanded = true
-    if (feature === "calendar") {
-      calendarOpen = true
-      inboxOpen = false
-      outputsOpen = false
-      openFocus = "calendar"
-    } else if (feature === "focus") {
-      calendarOpen = false
-      inboxOpen = false
-      outputsOpen = false
-      openFocus = "timer"
-    } else if (feature === "media") {
-      calendarOpen = false
-      inboxOpen = false
-      outputsOpen = false
-      openFocus = "media"
-    } else if (feature === "inbox") {
-      calendarOpen = false
-      inboxOpen = true
-      outputsOpen = false
-      openFocus = "inbox"
-    } else if (feature === "overview") {
-      calendarOpen = false
-      inboxOpen = false
-      outputsOpen = false
-      openFocus = "idle"
-    }
-    if (!hovered) {
-      collapseTimer.interval = 8000
-      collapseTimer.restart()
-    }
-  }
-
   property var hud: null
   readonly property bool hovered: islandHover.hovered
 
@@ -1065,7 +1018,6 @@ Item {
     outputsOpen: outputsOpen,
     calendarOpen: calendarOpen,
     focus: openFocus,
-    activeFeature: activeFeature,
     hasMedia: hasMedia,
     recording: recordingActivity,
     hud: hud,
@@ -1080,14 +1032,15 @@ Item {
     var v = Model.sizeFor(view, viewCounts, notchSize)
     // The resting pill grows to fit what the ticker is showing, so the
     // island breathes a little as the glances change.
-    if (view === "idle" || view === "idle-hover") {
-      var needed = Math.ceil(idleMetrics.advanceWidth) + root.s(28)
-      return { w: Math.max(220, needed), h: 26, r: 13 }
+    if ((view === "idle" || view === "idle-hover") && (idleFace === "ticker" || idleFace === "clock")) {
+      var unit = Style.spacing.scale * scaleFactor
+      var needed = Math.ceil(idleMetrics.advanceWidth / unit) + 44 + (view === "idle-hover" ? 12 : 0)
+      return { w: Math.min(260, Math.max(v.w, needed)), h: v.h, r: v.r }
     }
     return v
   }
   function slotSize(name) { return Model.sizeFor(name, viewCounts, notchSize) }
-  readonly property bool showBubble: false
+  readonly property bool showBubble: secondary !== "" && !userExpanded && hud === null
 
   function showHud(next) {
     hud = next
@@ -1100,11 +1053,6 @@ Item {
   function expand() {
     hud = null
     userExpanded = true
-    if (!openFocus && !calendarOpen && !inboxOpen && !outputsOpen) {
-      calendarOpen = true
-      openFocus = "calendar"
-      activeFeature = "calendar"
-    }
     // Opened without the pointer on it (IPC, keybind): close on its own.
     if (!hovered) {
       collapseTimer.interval = 6000
@@ -1136,8 +1084,8 @@ Item {
 
   Timer {
     id: hoverExpandTimer
-    interval: 140
-    onTriggered: if (root.hovered && !root.userExpanded) root.expand()
+    interval: 380
+    onTriggered: if (root.hovered && !root.userExpanded && !root.notification && root.view !== "notification" && root.view !== "notification-actions") root.expand()
   }
 
   onHoveredChanged: {
@@ -1350,8 +1298,7 @@ Item {
     function activities(): string { return JSON.stringify(activitySource.list()) }
     function refreshCalendar(): string { calendarSource.refresh(); return "ok" }
     function calendar(): string { root.openCalendar(); return "ok" }
-    function focusd(): string { root.openFocusd(); return "ok" }
-    function focus(): string { root.openFocusd(); return "ok" }
+    function pomodoro(): string { root.clocks.startPomodoro(); root.openFocus = "timer"; root.expand(); return "ok" }
     function addCalendar(link: string): string { root.addCalendar(link); return "ok" }
     function removeCalendar(link: string): string { root.removeCalendar(link); return "ok" }
     function addCalendarFromClipboard(): string { root.addCalendarFromClipboard(); return "ok" }
@@ -1422,12 +1369,14 @@ Item {
       window: win
       targetScreen: root.targetScreen
     }
-    anchors { top: true; bottom: true; left: true; right: true }
-    margins { top: -26 }
+    anchors { top: true; left: true; right: true }
+    // Tall enough for the biggest view (a full inbox or output list); only
+    // the island itself takes input, the rest of the strip is click-through.
+    implicitHeight: root.s(360) + root.topMargin
     color: "transparent"
 
     WlrLayershell.namespace: "dynamic-island"
-    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.layer: root.setting("layer", "top") === "overlay" ? WlrLayer.Overlay : WlrLayer.Top
     // Keyboard only while the calendar's link field is up (typing and
     // Ctrl+V go straight in; Esc hands it back). Otherwise the island never
     // takes focus from the app you're in.
@@ -1444,6 +1393,7 @@ Item {
 
     mask: Region {
       item: island
+      Region { item: bubble; intersection: Intersection.Combine }
     }
 
     Item {
@@ -1456,9 +1406,9 @@ Item {
       property real h: root.s(root.viewSize.h)
       property real r: root.s(root.viewSize.r)
 
-      Behavior on w { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-      Behavior on h { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-      Behavior on r { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+      Behavior on w { SpringAnimation { spring: 3.4; damping: 0.28; mass: 1.0; epsilon: 0.25 } }
+      Behavior on h { SpringAnimation { spring: 3.4; damping: 0.32; mass: 1.0; epsilon: 0.25 } }
+      Behavior on r { SpringAnimation { spring: 3.4; damping: 0.32; mass: 1.0; epsilon: 0.25 } }
 
       readonly property real earSize: root.s(9)
 
@@ -1624,21 +1574,6 @@ Item {
             pulse: root.edgeState.pulse === true
             pulsePeriod: root.edgeState.period || 1400
             sweepKey: root.edgeSweep
-          }
-
-          // Boring Notch Segmented Tab Switcher: 1-click feature access
-          IslandNav {
-            id: navBar
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: root.snap(root.s(8))
-            island: root
-            z: 100
-            visible: root.userExpanded && root.shapeSettled
-              && root.view !== "notification" && root.view !== "notification-actions"
-              && root.view !== "hud-track" && root.view !== "hud-toast"
-              && root.view !== "recording-expanded" && root.view !== "recording-media-expanded"
-            opacity: visible ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 150 } }
           }
 
           // The resting face follows the island's own size (it never waits

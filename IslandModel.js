@@ -7,8 +7,8 @@
 // these; `r` is the corner radius, which for the compact views is half the
 // height so the shape stays a true capsule.
 var sizes = {
-  "idle":          { w: 240, h: 26, r: 13 },
-  "idle-hover":    { w: 250, h: 26, r: 13 },
+  "idle":          { w: 126, h: 32, r: 16 },
+  "idle-hover":    { w: 138, h: 34, r: 17 },
   "hidden":        { w: 0,   h: 32, r: 16 },
   "media":         { w: 300, h: 32, r: 16 },
   "recording":     { w: 232, h: 32, r: 16 },
@@ -17,19 +17,19 @@ var sizes = {
   "hud-label":     { w: 310, h: 36, r: 18 },
   "hud-track":     { w: 368, h: 66, r: 28 },
   "hud-toast":     { w: 368, h: 66, r: 28 },
-  "media-expanded": { w: 460, h: 215, r: 42 },
+  "media-expanded": { w: 404, h: 186, r: 42 },
   "recording-expanded": { w: 392, h: 76, r: 34 },
-  "recording-media-expanded": { w: 460, h: 165, r: 40 },
-  "idle-expanded": { w: 460, h: 185, r: 40 },
+  "recording-media-expanded": { w: 404, h: 145, r: 40 },
+  "idle-expanded": { w: 424, h: 150, r: 40 },
   "notification":  { w: 404, h: 78, r: 34 },
   "inbox":         { w: 200, h: 32, r: 16 },
   "timer":         { w: 236, h: 32, r: 16 },
   "stopwatch":     { w: 236, h: 32, r: 16 },
   "activity":      { w: 256, h: 32, r: 16 },
   "calendar":      { w: 300, h: 32, r: 16 },
-  "clock-expanded": { w: 460, h: 185, r: 40 },
-  "activity-expanded": { w: 420, h: 120, r: 38 },
-  "calendar-expanded": { w: 560, h: 350, r: 40 },
+  "clock-expanded": { w: 380, h: 132, r: 40 },
+  "activity-expanded": { w: 392, h: 104, r: 38 },
+  "calendar-expanded": { w: 500, h: 262, r: 40 },
   "notification-actions": { w: 404, h: 118, r: 38 }
 }
 
@@ -55,20 +55,21 @@ function viewFor(state) {
     // Recording takes the top of an opened island so it can be stopped from
     // there; music, if any, rides along underneath.
     if (state.recording) return state.hasMedia ? "recording-media-expanded" : "recording-expanded"
-    var focus = state.focus || state.activeFeature || "calendar"
-    if (focus === "timer" || focus === "stopwatch" || focus === "focus") return "clock-expanded"
+    // Otherwise open whatever was clicked: the pill's activity, or the
+    // bubble's when the bubble was the thing clicked.
+    var focus = state.focus || state.primary
+    if (focus === "timer" || focus === "stopwatch") return "clock-expanded"
     if (focus === "activity") return "activity-expanded"
     if (focus === "calendar") return "calendar-expanded"
-    if (focus === "media") return "media-expanded"
-    if (focus === "inbox") return "inbox-expanded"
-    if (focus === "overview" || focus === "idle") return "idle-expanded"
-    return "calendar-expanded"
+    if (focus === "media" && state.hasMedia) return "media-expanded"
+    return state.hasMedia && focus !== "calendar" ? "media-expanded" : "idle-expanded"
   }
   if (state.hud && state.hud.layout === "progress") return "hud-progress"
   if (state.notification) return state.notificationActions ? "notification-actions" : "notification"
   if (state.hud) return state.hud.layout === "progress" ? "hud-progress"
     : (state.hud.layout === "track" ? "hud-track"
       : (state.hud.layout === "toast" ? "hud-toast" : "hud-label"))
+  if (state.primary) return state.primary
   if (state.idleHidden) return "hidden"
   return state.hovered ? "idle-hover" : "idle"
 }
@@ -78,9 +79,9 @@ var inboxRowHeight = 58
 var inboxRowGap = 6
 
 function inboxSize(count) {
-  if (count <= 0) return { w: 460, h: 104, r: 36 }
+  if (count <= 0) return { w: 420, h: 72, r: 32 }
   var rows = Math.min(4, count)
-  return { w: 460, h: 44 + rows * inboxRowHeight + (rows - 1) * inboxRowGap + 10 + 30 + 14, r: 36 }
+  return { w: 420, h: 14 + rows * inboxRowHeight + (rows - 1) * inboxRowGap + 10 + 30 + 14, r: 36 }
 }
 
 // Output picker: a header plus one row per audio output.
@@ -630,17 +631,17 @@ function osdHud(payload, show) {
 // Every setting and its default, in the README's order. The island writes
 // the missing ones into its shell.json entry so they can be edited in place.
 var defaultSettings = {
-  style: "island",
+  style: "notch",
   background: "theme",
   idle: "pill",
   idleFace: "ticker",
   scale: 1,
-  topMargin: 8,
-  reserveSpace: false,
+  topMargin: 6,
+  reserveSpace: true,
   keybind: "SUPER + ALT + I",
   monitor: "primary",
   layer: "top",
-  expandOnHover: true,
+  expandOnHover: false,
   clockFormat: "h:mm AP",
   mediaLingerSeconds: 30,
   notchWidth: 0,

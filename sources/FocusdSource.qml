@@ -24,10 +24,11 @@ Item {
   property int completedSessions: 0
   property bool hasSessionData: false
 
+  readonly property bool stopped: status === "stopped"
   readonly property bool running: status === "running"
   readonly property bool paused: status === "paused"
-  readonly property bool stopped: status === "stopped"
-  readonly property bool active: !stopped && (running || paused)
+  // Active only if running or partially completed (never active when idle/reset at 25:00 paused)
+  readonly property bool active: !stopped && (running || progress > 0)
 
   function start() {
     Quickshell.execDetached(["focusd", "start"])
@@ -35,7 +36,7 @@ Item {
   }
 
   function toggle() {
-    if (stopped) {
+    if (stopped || (!running && progress === 0)) {
       start()
     } else {
       Quickshell.execDetached(["focusd", "toggle"])

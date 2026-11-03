@@ -43,10 +43,11 @@ Item {
   readonly property bool timerActive: isFocusd || rawTimerActive
   readonly property bool timerPaused: isFocusd ? focusd.paused : rawTimerPaused
   readonly property real timerProgress: isFocusd ? focusd.progress : rawTimerProgress
+  readonly property double timerDuration: isFocusd ? (focusd.durationSeconds * 1000) : (rawTimerTotal > 0 ? rawTimerTotal : 1500000)
   readonly property double timerLeft: isFocusd ? (focusd.remainingSeconds * 1000) : (rawTimerActive ? rawTimerLeft : 1500000)
   readonly property string timerLabel: isFocusd ? focusd.sessionLabel : (rawTimerLabel || (pomodoroPhase === "short-break" ? "Short Break" : (pomodoroPhase === "long-break" ? "Long Break" : "Pomodoro")))
 
-  readonly property bool isPomodoro: isFocusd || timerLabel === "Pomodoro" || timerLabel === "Work" || timerLabel === "Short Break" || timerLabel === "Long Break"
+  readonly property bool isPomodoro: timerActive && (isFocusd || rawTimerLabel === "Pomodoro" || rawTimerLabel === "Work" || rawTimerLabel.indexOf("Break") !== -1 || rawTimerLabel.indexOf("break") !== -1 || rawTimerLabel.indexOf("Focus") !== -1)
   readonly property int completedSessions: isFocusd ? focusd.completedSessions : pomodoroCompleted
 
   // ---- stopwatch
@@ -72,10 +73,10 @@ Item {
     var lbl = String(label || "Timer")
 
     // If focusd is present and label indicates pomodoro, try starting focusd
-    if (lbl.toLowerCase().indexOf("pomo") !== -1 || lbl.toLowerCase().indexOf("focus") !== -1) {
+    if (isFocusd && (lbl.toLowerCase().indexOf("pomo") !== -1 || lbl.toLowerCase().indexOf("focus") !== -1)) {
       focusd.start()
-      // Also start raw timer as robust fallback/parallel tracker
       pomodoroPhase = "work"
+      return
     }
 
     var ms = Math.max(1, sec) * 1000
@@ -98,7 +99,13 @@ Item {
       return
     }
     if (!rawTimerActive) {
-      startPomodoro()
+      if (pomodoroPhase === "short-break") {
+        startTimer(5 * 60, "Short Break")
+      } else if (pomodoroPhase === "long-break") {
+        startTimer(15 * 60, "Long Break")
+      } else {
+        startPomodoro()
+      }
       return
     }
     now = Date.now()
@@ -131,6 +138,11 @@ Item {
       pomodoroPhase = "work"
       startTimer(25 * 60, "Pomodoro")
     }
+  }
+
+  function dismissActive() {
+    if (stopwatchActive) resetStopwatch()
+    else resetPomodoro()
   }
 
   function resetPomodoro() {

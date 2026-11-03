@@ -7,6 +7,7 @@ Item {
   property string glyph: ""
   property string tooltipText: ""
   property bool isActive: false
+  property string side: "left"
   property var island: null
   signal clicked()
 
@@ -18,11 +19,11 @@ Item {
     id: bg
     anchors.fill: parent
     radius: width / 2
-    color: sat.isActive ? Util.alpha(island.accentColor, 0.28)
-      : (satMouse.containsMouse ? Util.alpha(island.surfaceTop, 0.95) : Util.alpha(island.surfaceTop, 0.72))
+    color: sat.isActive ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.28)
+      : (satMouse.containsMouse ? Util.alpha(island ? island.surfaceTop : "#111C18", 0.95) : Util.alpha(island ? island.surfaceTop : "#111C18", 0.72))
     border.width: 1
-    border.color: sat.isActive ? island.accentColor
-      : (satMouse.containsMouse ? Util.alpha(island.fg, 0.4) : island.rim)
+    border.color: sat.isActive ? (island ? island.accentColor : "#2DD5B7")
+      : (satMouse.containsMouse ? Util.alpha(island ? island.fg : "#ffffff", 0.4) : (island ? island.rim : "#ffffff"))
 
     scale: satMouse.pressed ? 0.92 : (satMouse.containsMouse ? 1.08 : 1.0)
 
@@ -33,11 +34,11 @@ Item {
     // Active jade glow indicator ring
     Rectangle {
       anchors.fill: parent
-      anchors.margins: -island.s(3)
+      anchors.margins: -(island ? island.s(3) : 3)
       radius: width / 2
       color: "transparent"
       border.width: 1.5
-      border.color: Util.alpha(island.accentColor, 0.5)
+      border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.5)
       visible: sat.isActive
       opacity: sat.isActive ? 1 : 0
       Behavior on opacity { NumberAnimation { duration: 180 } }
@@ -48,28 +49,31 @@ Item {
       text: sat.glyph
       textFormat: Text.PlainText
       renderType: Text.NativeRendering
-      font.family: island ? island.fontFamily : "monospace"
+      font.family: island ? island.fontFamily : "sans-serif"
       font.pixelSize: island ? island.f(18) : 18
-      color: sat.isActive ? island.accentColor
-        : (satMouse.containsMouse ? island.fg : island.fgDim)
+      color: sat.isActive ? (island ? island.accentColor : "#2DD5B7")
+        : (satMouse.containsMouse ? (island ? island.fg : "#ffffff") : (island ? island.fgDim : "#aaaaaa"))
       Behavior on color { ColorAnimation { duration: 150 } }
     }
   }
 
-  // Floating Tooltip
+  // Floating Tooltip placed horizontally to avoid sibling overlap
   Rectangle {
     id: tip
     visible: opacity > 0.01
     opacity: satMouse.containsMouse ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 150 } }
-    y: parent.height + island.s(6)
-    anchors.horizontalCenter: parent.horizontalCenter
-    height: island.s(22)
-    width: tipText.implicitWidth + island.s(14)
+    anchors.right: sat.side === "left" ? parent.left : undefined
+    anchors.rightMargin: sat.side === "left" ? (island ? island.s(8) : 8) : 0
+    anchors.left: sat.side === "right" ? parent.right : undefined
+    anchors.leftMargin: sat.side === "right" ? (island ? island.s(8) : 8) : 0
+    anchors.verticalCenter: parent.verticalCenter
+    height: island ? island.s(22) : 22
+    width: tipText.implicitWidth + (island ? island.s(14) : 14)
     radius: height / 2
-    color: island.bodyAt(0.92)
+    color: island ? island.bodyAt(0.92) : "#111C18"
     border.width: 1
-    border.color: island.rim
+    border.color: island ? island.rim : "#ffffff"
     z: 100
 
     Text {
@@ -81,7 +85,7 @@ Item {
       font.family: island ? island.textFamily : "sans-serif"
       font.pixelSize: island ? island.f(10) : 10
       font.weight: Font.Medium
-      color: island.fg
+      color: island ? island.fg : "#ffffff"
     }
   }
 

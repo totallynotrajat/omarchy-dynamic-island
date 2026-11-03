@@ -37,7 +37,7 @@ var sizes = {
 
 // Compact activities in priority order. The first one present owns the pill;
 // the second one, if any, gets the detached bubble on the right.
-var activityOrder = ["recording", "timer", "activity", "media", "stopwatch", "calendar", "mic", "inbox"]
+var activityOrder = ["recording", "mic"]
 
 function activities(flags) {
   var out = []
@@ -687,4 +687,25 @@ function parseKeybind(text) {
     mask |= bit
   }
   return { mask: mask, key: parts[parts.length - 1] }
+}
+
+function pad2(n) {
+  var v = Number(n)
+  return (v < 10 ? "0" : "") + v
+}
+
+function isoWeek(year, month, day) {
+  var date = new Date(Date.UTC(year, month, day))
+  var weekday = date.getUTCDay() || 7
+  date.setUTCDate(date.getUTCDate() + 4 - weekday)
+  var yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
+  return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+}
+
+function formatClockDate(date, fmt) {
+  if (!date) return ""
+  var format = String(fmt || "dddd HH:mm")
+  var weekStr = pad2(isoWeek(date.getFullYear(), date.getMonth(), date.getDate()))
+  var prepared = format.replace(/ww/g, weekStr)
+  return Qt.formatDateTime(date, prepared)
 }

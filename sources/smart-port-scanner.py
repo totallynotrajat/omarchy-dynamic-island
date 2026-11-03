@@ -3,23 +3,27 @@ import subprocess, re, os, json
 out = subprocess.run(["ss", "-tlpn"], capture_output=True, text=True).stdout
 seen = set()
 res = []
+home = os.path.expanduser("~")
 
 for line in out.splitlines():
     if "LISTEN" not in line: continue
     parts = line.split()
     if len(parts) < 4: continue
     port = parts[3].rsplit(":", 1)[-1]
-    if not port.isdigit() or port in ["53", "631"]: continue
+    # Filter non-dev system / daemon listeners
+    if not port.isdigit() or port in ["53", "631", "111", "22", "5355", "5353", "22000"]: continue
     if port in seen: continue
     
     m = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
     proc_name = m.group(1) if m else "process"
     pid = m.group(2) if m else "-"
     app_name = proc_name
+    dir_name = ""
     
     if pid != "-":
         try:
             cwd = os.readlink(f"/proc/{pid}/cwd")
+            dir_name = cwd.replace(home, "~") if cwd.startswith(home) else cwd
             pkg = os.path.join(cwd, "package.json")
             cargo = os.path.join(cwd, "Cargo.toml")
             gomod = os.path.join(cwd, "go.mod")
@@ -51,7 +55,7 @@ for line in out.splitlines():
             pass
             
     seen.add(port)
-    res.append(f"{port}|{app_name}|{pid}")
+    res.append(f"{port}|{app_name}|{pid}|{dir_name}")
 
 # Sort by port number numerically
 res.sort(key=lambda x: int(x.split("|")[0]))

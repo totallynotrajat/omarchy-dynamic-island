@@ -2,20 +2,19 @@ import QtQuick
 import qs.Commons
 import "../IslandModel.js" as Model
 
-// What the resting island shows: The digital clock ALWAYS visible in the center of the bar
-// with subtle status indicators for Pomodoro, media, and calendar meetings.
-// Right-clicking cycles the clock format variations.
+// Resting island face: Digital system clock is ALWAYS visible in the center of the bar.
+// Displays subtle indicators beside the clock when a timer, music, or meeting is active.
+// Right-clicking the resting notch cycles the clock format variations immediately.
 Item {
   id: face
 
   property var island: null
-  readonly property string mode: island ? island.idleFace : "clock"
 
   Row {
     anchors.centerIn: parent
     spacing: island ? island.s(6) : 6
 
-    // Default Clock Text - ALWAYS visible when blended/resting
+    // Default Digital Clock Text - ALWAYS visible when blended/resting
     Text {
       anchors.verticalCenter: parent.verticalCenter
       text: island ? island.formattedClockText : ""
@@ -27,39 +26,40 @@ Item {
       color: island ? island.fg : "#ffffff"
     }
 
-    // Active Pomodoro indicator badge
+    // Active Pomodoro / Timer indicator badge
     Row {
-      visible: island && island.clocks && island.clocks.timerActive
+      visible: !!(island && island.clocks && island.clocks.timerActive)
       anchors.verticalCenter: parent.verticalCenter
       spacing: island ? island.s(3) : 3
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
         text: island && island.clocks && island.clocks.isPomodoro
-          ? (island.clocks.isBreak ? "󰏤" : "󰔛") : "󰔛"
+          ? (island.clocks.isBreak ? "" : "󰔛") : "󰔛"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island ? island.fontFamily : "sans-serif"
         font.pixelSize: island ? island.f(11) : 11
         color: island && island.clocks && island.clocks.isBreak
-          ? island.greenColor : island.orangeColor
+          ? (island ? island.greenColor : "#2DD5B7")
+          : (island ? island.orangeColor : "#F7E8B2")
       }
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        text: island && island.clocks
-          ? (island.clocks.timeDisplay || Model.formatClock(Math.ceil(island.clocks.timerLeft / 1000))) : ""
+        text: island && island.clocks ? (island.clocks.timeDisplay || Model.formatClock(Math.ceil(island.clocks.timerLeft / 1000))) : ""
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island ? island.fontFamily : "sans-serif"
         font.pixelSize: island ? island.f(11) : 11
-        color: island ? island.orangeColor : "#ffaa00"
+        font.features: { "tnum": 1 }
+        color: island ? island.orangeColor : "#F7E8B2"
       }
     }
 
-    // Active music playing indicator
+    // Active media playing indicator
     Text {
-      visible: island && island.mediaPlaying && (!island.clocks || !island.clocks.timerActive)
+      visible: !!(island && island.mediaPlaying && (!island.clocks || !island.clocks.timerActive))
       anchors.verticalCenter: parent.verticalCenter
       text: "󰎆"
       textFormat: Text.PlainText
@@ -69,9 +69,9 @@ Item {
       color: island ? island.greenColor : "#2DD5B7"
     }
 
-    // Calendar meeting soon indicator
+    // Upcoming meeting indicator
     Text {
-      visible: island && island.calendar && island.calendar.soon && (!island.clocks || !island.clocks.timerActive)
+      visible: !!(island && island.calendar && island.calendar.soon && (!island.clocks || !island.clocks.timerActive))
       anchors.verticalCenter: parent.verticalCenter
       text: "󰃭"
       textFormat: Text.PlainText

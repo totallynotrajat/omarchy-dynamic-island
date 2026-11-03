@@ -16,31 +16,44 @@ Item {
   readonly property var cal: island ? island.calendar : null
   readonly property int pad: island ? island.s(16) : 16
 
-  readonly property date today: new Date()
-  property int year: today.getFullYear()
-  property int monthIndex: today.getMonth()
-  property double selected: new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  // Live current date updated across midnight
+  property date currentDate: new Date()
+  Timer {
+    interval: 30000
+    repeat: true
+    running: view.visible
+    triggeredOnStart: true
+    onTriggered: view.currentDate = new Date()
+  }
+
+  // Month navigation state
+  property int year: currentDate.getFullYear()
+  property int monthIndex: currentDate.getMonth()
+  property double selected: new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()).getTime()
   readonly property bool adding: island ? island.calendarAdding : false
 
   // View mode: "month", "week", "three-day", "today"
   property string viewMode: "month"
 
+  // Browsed month map (for Month mode) and Current month map (for Week/3-Day/Today)
   readonly property var days: cal ? cal.month(year, monthIndex) : ({})
+  readonly property var currentMonthDays: cal ? cal.month(currentDate.getFullYear(), currentDate.getMonth()) : ({})
+
   readonly property var dayEvents: days[Model.dayKey(selected)] || []
-  readonly property var todayEvents: days[Model.dayKey(today.getTime())] || []
+  readonly property var todayEvents: currentMonthDays[Model.dayKey(currentDate.getTime())] || []
   readonly property bool hasCalendars: cal && cal.sources.length > 0
   property bool pickingHolidays: false
 
-  // Monday or Sunday first, whatever the locale says.
+  // Monday or Sunday first, whatever the locale says
   readonly property int firstWeekday: Qt.locale().firstDayOfWeek % 7
   readonly property int leadingBlanks: (new Date(year, monthIndex, 1).getDay() - firstWeekday + 7) % 7
 
   onVisibleChanged: {
     if (!visible) return
-    var t = new Date()
-    year = t.getFullYear()
-    monthIndex = t.getMonth()
-    selected = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+    currentDate = new Date()
+    year = currentDate.getFullYear()
+    monthIndex = currentDate.getMonth()
+    selected = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()).getTime()
     if (adding) Qt.callLater(function() { input.forceActiveFocus() })
   }
   onAddingChanged: {
@@ -60,9 +73,18 @@ Item {
     return Qt.formatDateTime(new Date(t), fmt)
   }
 
-  function eventsForTime(timeVal) {
-    var k = Model.dayKey(timeVal)
-    return days[k] || []
+  function eventsForDate(targetDate) {
+    var k = Model.dayKey(targetDate.getTime())
+    var evs = currentMonthDays[k]
+    if (evs) return evs
+    if (days[k]) return days[k]
+    if (cal && cal.raw) {
+      var d0 = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime()
+      var d1 = d0 + 86400000
+      var parsed = Model.parseIcs(cal.raw, d0, d1, true)
+      return parsed
+    }
+    return []
   }
 
   // ------------------------------------------------------------ Header / Tab Switcher Bar
@@ -95,10 +117,10 @@ Item {
           height: island ? island.s(24) : 24
           radius: height / 2
           color: active
-            ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.22)
-            : (tabMouse.containsMouse ? Util.alpha(island ? island.fg : "#ffffff", 0.08) : "transparent")
+            ? Util.alpha(island.accentColor, 0.22)
+            : (tabMouse.containsMouse ? Util.alpha(island.fg, 0.08) : "transparent")
           border.width: active ? 1 : 0
-          border.color: island ? island.accentColor : "#2DD5B7"
+          border.color: island.accentColor
 
           Text {
             id: tabText
@@ -109,7 +131,7 @@ Item {
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(11) : 11
             font.weight: tabBtn.active ? Font.DemiBold : Font.Normal
-            color: tabBtn.active ? (island ? island.accentColor : "#2DD5B7") : (island ? island.fgDim : "#aaaaaa")
+            color: tabBtn.active ? island.accentColor : island.fgDim
           }
 
           MouseArea {
@@ -126,18 +148,17 @@ Item {
       }
     }
 
-    // Right Controls: Holiday & Add Calendar buttons
+    // Right Controls: Add Calendar button
     Row {
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       spacing: island ? island.s(6) : 6
 
-      // Add / Close calendar field toggle
       IconButton {
         anchors.verticalCenter: parent.verticalCenter
         glyph: view.adding ? "󰅖" : "󰐕"
         glyphSize: island ? island.f(12) : 12
-        color: island ? island.fg : "#ffffff"
+        color: island.fg
         fontFamily: island ? island.fontFamily : "sans-serif"
         onClicked: {
           if (island) island.calendarAdding = !island.calendarAdding
@@ -181,7 +202,7 @@ Item {
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(13) : 13
             font.weight: Font.DemiBold
-            color: island ? island.fg : "#ffffff"
+            color: island.fg
           }
 
           Row {
@@ -192,14 +213,14 @@ Item {
             IconButton {
               glyph: "󰅁"
               glyphSize: island ? island.f(11) : 11
-              color: island ? island.fg : "#ffffff"
+              color: island.fg
               fontFamily: island ? island.fontFamily : "sans-serif"
               onClicked: view.shiftMonth(-1)
             }
             IconButton {
               glyph: "󰅂"
               glyphSize: island ? island.f(11) : 11
-              color: island ? island.fg : "#ffffff"
+              color: island.fg
               fontFamily: island ? island.fontFamily : "sans-serif"
               onClicked: view.shiftMonth(1)
             }
@@ -221,7 +242,7 @@ Item {
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(10) : 10
-              color: island ? island.fgDim : "#888888"
+              color: island.fgDim
             }
           }
         }
@@ -239,7 +260,7 @@ Item {
               readonly property date cellDate: new Date(view.year, view.monthIndex, 1 - view.leadingBlanks + index)
               readonly property double time: cellDate.getTime()
               readonly property bool inMonth: cellDate.getMonth() === view.monthIndex
-              readonly property bool isToday: Model.dayKey(time) === Model.dayKey(Date.now())
+              readonly property bool isToday: Model.dayKey(time) === Model.dayKey(view.currentDate.getTime())
               readonly property bool isSelected: time === view.selected
               readonly property bool busy: !!view.days[Model.dayKey(time)]
 
@@ -252,10 +273,10 @@ Item {
                 height: width
                 radius: width / 2
                 color: cell.isToday
-                  ? (island ? island.accentColor : "#2DD5B7")
-                  : (dayMouse.containsMouse ? Util.alpha(island ? island.fg : "#ffffff", 0.1) : "transparent")
+                  ? island.accentColor
+                  : (dayMouse.containsMouse ? Util.alpha(island.fg, 0.1) : "transparent")
                 border.width: cell.isSelected && !cell.isToday ? Math.max(1, island ? island.s(1.5) : 1.5) : 0
-                border.color: island ? island.accentColor : "#2DD5B7"
+                border.color: island.accentColor
               }
 
               Text {
@@ -267,7 +288,7 @@ Item {
                 font.pixelSize: island ? island.f(11) : 11
                 font.bold: cell.isToday || cell.isSelected
                 font.features: { "tnum": 1 }
-                color: cell.isToday ? (island ? island.surface : "#000000") : (island ? island.fg : "#ffffff")
+                color: cell.isToday ? island.surface : island.fg
                 opacity: cell.inMonth ? 1 : 0.3
               }
 
@@ -278,7 +299,7 @@ Item {
                 width: island ? island.s(3.5) : 3.5
                 height: width
                 radius: width / 2
-                color: cell.isToday ? (island ? island.fg : "#ffffff") : (island ? island.orangeColor : "#ffaa00")
+                color: cell.isToday ? island.fg : island.orangeColor
                 opacity: cell.inMonth ? 1 : 0.4
               }
 
@@ -314,7 +335,7 @@ Item {
           font.family: island ? island.textFamily : "sans-serif"
           font.pixelSize: island ? island.f(12) : 12
           font.weight: Font.DemiBold
-          color: island ? island.fg : "#ffffff"
+          color: island.fg
         }
 
         ListView {
@@ -335,7 +356,7 @@ Item {
             width: ListView.view.width
             height: island ? island.s(38) : 38
             radius: island ? island.s(10) : 10
-            color: Util.alpha(island ? island.fg : "#ffffff", evMouse.containsMouse ? 0.09 : 0.04)
+            color: Util.alpha(island.fg, evMouse.containsMouse ? 0.09 : 0.04)
             opacity: past ? 0.5 : 1
 
             Rectangle {
@@ -344,7 +365,7 @@ Item {
               width: island ? island.s(3) : 3
               height: parent.height - (island ? island.s(14) : 14)
               radius: width / 2
-              color: eventItem.modelData.allDay ? (island ? island.orangeColor : "#ffaa00") : (island ? island.accentColor : "#2DD5B7")
+              color: eventItem.modelData.allDay ? island.orangeColor : island.accentColor
             }
 
             Column {
@@ -362,7 +383,7 @@ Item {
                 font.family: island ? island.textFamily : "sans-serif"
                 font.pixelSize: island ? island.f(11) : 11
                 font.weight: Font.DemiBold
-                color: island ? island.fg : "#ffffff"
+                color: island.fg
               }
 
               Text {
@@ -372,7 +393,7 @@ Item {
                 renderType: Text.NativeRendering
                 font.family: island ? island.textFamily : "sans-serif"
                 font.pixelSize: island ? island.f(10) : 10
-                color: island ? island.fgDim : "#888888"
+                color: island.fgDim
               }
             }
 
@@ -386,7 +407,7 @@ Item {
               renderType: Text.NativeRendering
               font.family: island ? island.fontFamily : "sans-serif"
               font.pixelSize: island ? island.f(12) : 12
-              color: island ? island.accentColor : "#2DD5B7"
+              color: island.accentColor
             }
 
             MouseArea {
@@ -407,7 +428,7 @@ Item {
           renderType: Text.NativeRendering
           font.family: island ? island.textFamily : "sans-serif"
           font.pixelSize: island ? island.f(11) : 11
-          color: island ? island.fgDim : "#888888"
+          color: island.fgDim
         }
       }
     }
@@ -429,23 +450,21 @@ Item {
             id: weekCol
             required property int index
             readonly property date colDate: {
-              var curr = new Date(view.today)
+              var curr = view.currentDate
               var diff = (curr.getDay() - view.firstWeekday + 7) % 7
-              var first = new Date(curr.getTime() - diff * 86400000)
-              return new Date(first.getTime() + index * 86400000)
+              return new Date(curr.getFullYear(), curr.getMonth(), curr.getDate() - diff + index)
             }
-            readonly property double colTime: colDate.getTime()
-            readonly property bool isToday: Model.dayKey(colTime) === Model.dayKey(Date.now())
-            readonly property var colEvents: view.eventsForTime(colTime)
+            readonly property bool isToday: Model.dayKey(colDate.getTime()) === Model.dayKey(view.currentDate.getTime())
+            readonly property var colEvents: view.eventsForDate(colDate)
 
             width: (weekContainer.width - 6 * (island ? island.s(6) : 6)) / 7
             height: parent.height
             radius: island ? island.s(10) : 10
             color: isToday
-              ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.08)
-              : Util.alpha(island ? island.fg : "#ffffff", 0.03)
+              ? Util.alpha(island.accentColor, 0.08)
+              : Util.alpha(island.fg, 0.03)
             border.width: isToday ? 1 : 0
-            border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.4)
+            border.color: Util.alpha(island.accentColor, 0.4)
 
             // Column Header
             Rectangle {
@@ -453,7 +472,7 @@ Item {
               width: parent.width
               height: island ? island.s(26) : 26
               radius: island ? island.s(10) : 10
-              color: weekCol.isToday ? (island ? island.accentColor : "#2DD5B7") : "transparent"
+              color: weekCol.isToday ? island.accentColor : "transparent"
 
               Text {
                 anchors.centerIn: parent
@@ -463,7 +482,7 @@ Item {
                 font.family: island ? island.textFamily : "sans-serif"
                 font.pixelSize: island ? island.f(10) : 10
                 font.weight: Font.DemiBold
-                color: weekCol.isToday ? (island ? island.surface : "#000000") : (island ? island.fg : "#ffffff")
+                color: weekCol.isToday ? island.surface : island.fg
               }
             }
 
@@ -485,9 +504,9 @@ Item {
                 id: weekEv
                 required property var modelData
                 width: ListView.view.width
-                height: island ? island.s(32) : 32
+                height: island ? island.s(34) : 34
                 radius: island ? island.s(6) : 6
-                color: Util.alpha(island ? island.fg : "#ffffff", wMouse.containsMouse ? 0.12 : 0.06)
+                color: Util.alpha(island.fg, wMouse.containsMouse ? 0.12 : 0.06)
 
                 Column {
                   anchors.fill: parent
@@ -503,7 +522,7 @@ Item {
                     font.family: island ? island.textFamily : "sans-serif"
                     font.pixelSize: island ? island.f(9) : 9
                     font.weight: Font.DemiBold
-                    color: island ? island.fg : "#ffffff"
+                    color: island.fg
                   }
 
                   Text {
@@ -512,7 +531,7 @@ Item {
                     renderType: Text.NativeRendering
                     font.family: island ? island.textFamily : "sans-serif"
                     font.pixelSize: island ? island.f(8) : 8
-                    color: island ? island.accentColor : "#2DD5B7"
+                    color: island.accentColor
                   }
                 }
 
@@ -534,7 +553,7 @@ Item {
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(11) : 11
-              color: island ? island.fgDim : "#666666"
+              color: island.fgDim
               opacity: 0.4
             }
           }
@@ -542,7 +561,7 @@ Item {
       }
     }
 
-    // ============================================================ MODE 3: 3-DAY (3 Columns)
+    // ============================================================ MODE 3: 3-DAY (Yesterday, Today, Tomorrow)
     Item {
       id: threeDayContainer
       visible: view.viewMode === "three-day" && !view.adding
@@ -558,21 +577,23 @@ Item {
           Rectangle {
             id: threeDayCol
             required property int index
-            readonly property date colDate: new Date(view.today.getTime() + index * 86400000)
-            readonly property double colTime: colDate.getTime()
-            readonly property bool isToday: index === 0
-            readonly property var colEvents: view.eventsForTime(colTime)
+            readonly property date colDate: {
+              var curr = view.currentDate
+              return new Date(curr.getFullYear(), curr.getMonth(), curr.getDate() - 1 + index)
+            }
+            readonly property bool isToday: index === 1
+            readonly property var colEvents: view.eventsForDate(colDate)
 
             width: (threeDayContainer.width - 2 * (island ? island.s(8) : 8)) / 3
             height: parent.height
             radius: island ? island.s(12) : 12
             color: isToday
-              ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.08)
-              : Util.alpha(island ? island.fg : "#ffffff", 0.03)
+              ? Util.alpha(island.accentColor, 0.08)
+              : Util.alpha(island.fg, 0.03)
             border.width: isToday ? 1 : 0
-            border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.4)
+            border.color: Util.alpha(island.accentColor, 0.4)
 
-            // Column Header
+            // Column Header: Yesterday, Today, Tomorrow
             Item {
               id: tHeader
               width: parent.width
@@ -582,13 +603,13 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: island ? island.s(10) : 10
                 anchors.verticalCenter: parent.verticalCenter
-                text: threeDayCol.index === 0 ? "Today" : (threeDayCol.index === 1 ? "Tomorrow" : Qt.formatDateTime(threeDayCol.colDate, "dddd"))
+                text: threeDayCol.index === 0 ? "Yesterday" : (threeDayCol.index === 1 ? "Today" : "Tomorrow")
                 textFormat: Text.PlainText
                 renderType: Text.NativeRendering
                 font.family: island ? island.textFamily : "sans-serif"
                 font.pixelSize: island ? island.f(12) : 12
                 font.weight: Font.DemiBold
-                color: threeDayCol.isToday ? (island ? island.accentColor : "#2DD5B7") : (island ? island.fg : "#ffffff")
+                color: threeDayCol.isToday ? island.accentColor : island.fg
               }
 
               Text {
@@ -600,7 +621,7 @@ Item {
                 renderType: Text.NativeRendering
                 font.family: island ? island.textFamily : "sans-serif"
                 font.pixelSize: island ? island.f(10) : 10
-                color: island ? island.fgDim : "#888888"
+                color: island.fgDim
               }
             }
 
@@ -623,7 +644,7 @@ Item {
                 width: ListView.view.width
                 height: island ? island.s(44) : 44
                 radius: island ? island.s(8) : 8
-                color: Util.alpha(island ? island.fg : "#ffffff", tdMouse.containsMouse ? 0.1 : 0.05)
+                color: Util.alpha(island.fg, tdMouse.containsMouse ? 0.1 : 0.05)
 
                 Rectangle {
                   x: island ? island.s(6) : 6
@@ -631,7 +652,7 @@ Item {
                   width: island ? island.s(3) : 3
                   height: parent.height - (island ? island.s(14) : 14)
                   radius: width / 2
-                  color: threeEv.modelData.allDay ? (island ? island.orangeColor : "#ffaa00") : (island ? island.accentColor : "#2DD5B7")
+                  color: threeEv.modelData.allDay ? island.orangeColor : island.accentColor
                 }
 
                 Column {
@@ -649,7 +670,7 @@ Item {
                     font.family: island ? island.textFamily : "sans-serif"
                     font.pixelSize: island ? island.f(11) : 11
                     font.weight: Font.DemiBold
-                    color: island ? island.fg : "#ffffff"
+                    color: island.fg
                   }
 
                   Text {
@@ -659,7 +680,7 @@ Item {
                     renderType: Text.NativeRendering
                     font.family: island ? island.textFamily : "sans-serif"
                     font.pixelSize: island ? island.f(9) : 9
-                    color: island ? island.fgDim : "#888888"
+                    color: island.fgDim
                   }
                 }
 
@@ -673,7 +694,7 @@ Item {
                   renderType: Text.NativeRendering
                   font.family: island ? island.fontFamily : "sans-serif"
                   font.pixelSize: island ? island.f(12) : 12
-                  color: island ? island.accentColor : "#2DD5B7"
+                  color: island.accentColor
                 }
 
                 MouseArea {
@@ -694,7 +715,7 @@ Item {
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(10) : 10
-              color: island ? island.fgDim : "#888888"
+              color: island.fgDim
             }
           }
         }
@@ -707,7 +728,13 @@ Item {
       visible: view.viewMode === "today" && !view.adding
       anchors.fill: parent
 
-      readonly property var heroEvent: cal ? cal.next : null
+      // Only show hero if the event is actually today
+      readonly property var heroEvent: {
+        if (!cal || !cal.next) return null
+        var nowKey = Model.dayKey(view.currentDate.getTime())
+        var nextKey = Model.dayKey(cal.next.start)
+        return nowKey === nextKey ? cal.next : null
+      }
 
       // Hero Upcoming Meeting Card
       Rectangle {
@@ -716,9 +743,9 @@ Item {
         width: parent.width
         height: island ? island.s(68) : 68
         radius: island ? island.s(12) : 12
-        color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.12)
+        color: Util.alpha(island.accentColor, 0.12)
         border.width: 1
-        border.color: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.35)
+        border.color: Util.alpha(island.accentColor, 0.35)
 
         Row {
           x: island ? island.s(12) : 12
@@ -730,17 +757,17 @@ Item {
             height: width
             radius: width / 2
             anchors.verticalCenter: parent.verticalCenter
-            color: island ? island.accentColor : "#2DD5B7"
+            color: island.accentColor
           }
 
           Text {
-            text: todayContainer.heroEvent ? "UPCOMING MEETING · " + Model.untilText(todayContainer.heroEvent.start, Date.now()) : "NO UPCOMING MEETINGS"
+            text: todayContainer.heroEvent ? "UPCOMING MEETING · " + Model.untilText(todayContainer.heroEvent.start, Date.now()) : "NO UPCOMING MEETINGS TODAY"
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(10) : 10
             font.weight: Font.DemiBold
-            color: island ? island.accentColor : "#2DD5B7"
+            color: island.accentColor
           }
         }
 
@@ -752,14 +779,14 @@ Item {
 
           Text {
             width: parent.width
-            text: todayContainer.heroEvent ? todayContainer.heroEvent.title : "Your schedule is clear"
+            text: todayContainer.heroEvent ? todayContainer.heroEvent.title : "Schedule clear for today"
             elide: Text.ElideRight
             textFormat: Text.PlainText
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(13) : 13
             font.weight: Font.DemiBold
-            color: island ? island.fg : "#ffffff"
+            color: island.fg
           }
 
           Text {
@@ -769,7 +796,7 @@ Item {
             renderType: Text.NativeRendering
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(10) : 10
-            color: island ? island.fgDim : "#aaaaaa"
+            color: island.fgDim
           }
         }
 
@@ -782,8 +809,8 @@ Item {
           width: joinText.implicitWidth + (island ? island.s(20) : 20)
           height: island ? island.s(30) : 30
           radius: height / 2
-          color: joinMouse.pressed ? Qt.darker(island ? island.accentColor : "#2DD5B7", 1.2)
-            : (joinMouse.containsMouse ? Qt.lighter(island ? island.accentColor : "#2DD5B7", 1.1) : (island ? island.accentColor : "#2DD5B7"))
+          color: joinMouse.pressed ? Qt.darker(island.accentColor, 1.2)
+            : (joinMouse.containsMouse ? Qt.lighter(island.accentColor, 1.1) : island.accentColor)
 
           Text {
             id: joinText
@@ -794,7 +821,7 @@ Item {
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(11) : 11
             font.weight: Font.DemiBold
-            color: island ? island.surface : "#000000"
+            color: island.surface
           }
 
           MouseArea {
@@ -825,7 +852,7 @@ Item {
           width: ListView.view.width
           height: island ? island.s(36) : 36
           radius: island ? island.s(8) : 8
-          color: Util.alpha(island ? island.fg : "#ffffff", tdAgendaMouse.containsMouse ? 0.09 : 0.04)
+          color: Util.alpha(island.fg, tdAgendaMouse.containsMouse ? 0.09 : 0.04)
 
           Rectangle {
             x: island ? island.s(8) : 8
@@ -833,7 +860,7 @@ Item {
             width: island ? island.s(3) : 3
             height: parent.height - (island ? island.s(14) : 14)
             radius: width / 2
-            color: tdEv.modelData.allDay ? (island ? island.orangeColor : "#ffaa00") : (island ? island.accentColor : "#2DD5B7")
+            color: tdEv.modelData.allDay ? island.orangeColor : island.accentColor
           }
 
           Column {
@@ -851,7 +878,7 @@ Item {
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(11) : 11
               font.weight: Font.DemiBold
-              color: island ? island.fg : "#ffffff"
+              color: island.fg
             }
 
             Text {
@@ -861,7 +888,7 @@ Item {
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(10) : 10
-              color: island ? island.fgDim : "#888888"
+              color: island.fgDim
             }
           }
 
@@ -875,7 +902,7 @@ Item {
             renderType: Text.NativeRendering
             font.family: island ? island.fontFamily : "sans-serif"
             font.pixelSize: island ? island.f(12) : 12
-            color: island ? island.accentColor : "#2DD5B7"
+            color: island.accentColor
           }
 
           MouseArea {
@@ -913,8 +940,8 @@ Item {
           width: ListView.view.width
           height: island ? island.s(26) : 26
           radius: height / 2
-          color: chosen ? Util.alpha(island ? island.accentColor : "#2DD5B7", 0.22)
-            : Util.alpha(island ? island.fg : "#ffffff", countryMouse.containsMouse ? 0.1 : 0.03)
+          color: chosen ? Util.alpha(island.accentColor, 0.22)
+            : Util.alpha(island.fg, countryMouse.containsMouse ? 0.1 : 0.03)
 
           Text {
             anchors.left: parent.left
@@ -926,7 +953,7 @@ Item {
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(11) : 11
             font.bold: country.chosen
-            color: island ? island.fg : "#ffffff"
+            color: island.fg
           }
 
           MouseArea {
@@ -958,7 +985,7 @@ Item {
             width: pasteLabel.implicitWidth + (island ? island.s(22) : 22)
             height: parent.height
             radius: height / 2
-            color: Util.alpha(island ? island.accentColor : "#2DD5B7", pasteMouse.pressed ? 0.34 : (pasteMouse.containsMouse ? 0.26 : 0.18))
+            color: Util.alpha(island.accentColor, pasteMouse.pressed ? 0.34 : (pasteMouse.containsMouse ? 0.26 : 0.18))
 
             Text {
               id: pasteLabel
@@ -969,7 +996,7 @@ Item {
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(11) : 11
               font.weight: Font.DemiBold
-              color: island ? island.accentColor : "#2DD5B7"
+              color: island.accentColor
             }
 
             MouseArea {
@@ -987,9 +1014,9 @@ Item {
             anchors.rightMargin: island ? island.s(6) : 6
             height: parent.height
             radius: height / 2
-            color: Util.alpha(island ? island.fg : "#ffffff", 0.08)
+            color: Util.alpha(island.fg, 0.08)
             border.width: input.activeFocus ? 1 : 0
-            border.color: island ? island.accentColor : "#2DD5B7"
+            border.color: island.accentColor
 
             TextInput {
               id: input
@@ -1001,8 +1028,8 @@ Item {
               clip: true
               font.family: island ? island.fontFamily : "sans-serif"
               font.pixelSize: island ? island.f(11) : 11
-              color: island ? island.fg : "#ffffff"
-              selectionColor: Util.alpha(island ? island.accentColor : "#2DD5B7", 0.5)
+              color: island.fg
+              selectionColor: Util.alpha(island.accentColor, 0.5)
               renderType: Text.NativeRendering
               selectByMouse: true
 
@@ -1028,7 +1055,7 @@ Item {
                 textFormat: Text.PlainText
                 renderType: Text.NativeRendering
                 font: input.font
-                color: island ? island.fgDim : "#888888"
+                color: island.fgDim
               }
             }
 
@@ -1046,7 +1073,7 @@ Item {
           width: parent.width
           height: island ? island.s(26) : 26
           radius: height / 2
-          color: Util.alpha(island ? island.orangeColor : "#ffaa00", holidaysMouse.containsMouse ? 0.24 : 0.14)
+          color: Util.alpha(island.orangeColor, holidaysMouse.containsMouse ? 0.24 : 0.14)
 
           Text {
             anchors.left: parent.left
@@ -1061,7 +1088,7 @@ Item {
             font.family: island ? island.textFamily : "sans-serif"
             font.pixelSize: island ? island.f(11) : 11
             font.weight: Font.DemiBold
-            color: island ? island.orangeColor : "#ffaa00"
+            color: island.orangeColor
           }
 
           MouseArea {
@@ -1083,7 +1110,7 @@ Item {
             width: parent.width
             height: island ? island.s(26) : 26
             radius: height / 2
-            color: Util.alpha(island ? island.fg : "#ffffff", 0.05)
+            color: Util.alpha(island.fg, 0.05)
 
             Text {
               anchors.left: parent.left
@@ -1097,7 +1124,7 @@ Item {
               renderType: Text.NativeRendering
               font.family: island ? island.textFamily : "sans-serif"
               font.pixelSize: island ? island.f(10) : 10
-              color: island ? island.fg : "#ffffff"
+              color: island.fg
             }
 
             IconButton {
@@ -1106,7 +1133,7 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               glyph: "󰅖"
               glyphSize: island ? island.f(10) : 10
-              color: island ? island.fg : "#ffffff"
+              color: island.fg
               fontFamily: island ? island.fontFamily : "sans-serif"
               onClicked: if (island) island.removeCalendar(source.modelData)
             }

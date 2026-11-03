@@ -48,23 +48,22 @@ Item {
   readonly property bool reserveSpace: setting("reserveSpace", true) !== false
   readonly property string monitorSetting: String(setting("monitor", "primary"))
   readonly property bool expandOnHover: setting("expandOnHover", false) === true
-  readonly property string clockFormat: String(setting("clockFormat", "h:mm AP"))
+  readonly property string clockFormat: String(setting("clockFormat", "dddd HH:mm"))
   readonly property var clockFormats: [
-    "h:mm AP",
-    "HH:mm",
-    "dddd h:mm AP",
     "dddd HH:mm",
-    "ddd d MMM h:mm AP",
+    "dddd h:mm AP",
+    "HH:mm",
+    "h:mm AP",
     "ddd d MMM HH:mm",
+    "ddd d MMM h:mm AP",
     "d MMMM 'W'ww yyyy",
     "yyyy-MM-dd HH:mm"
   ]
   property string activeClockFormat: clockFormat
-  onClockFormatChanged: activeClockFormat = clockFormat
 
   readonly property string formattedClockText: {
     idleClock.date
-    return Qt.formatDateTime(idleClock.date, activeClockFormat)
+    return Model.formatClockDate(idleClock.date, activeClockFormat)
   }
 
   function cycleClockFormat() {
@@ -73,14 +72,6 @@ Item {
     var next = clockFormats[(idx + 1) % clockFormats.length]
     activeClockFormat = next
     saveSettings({ clockFormat: next })
-    showHud({
-      key: "clockFormat", layout: "label",
-      label: "Clock Format",
-      icon: "󱑂",
-      valueText: next,
-      color: accentColor,
-      duration: 1600
-    })
   }
   readonly property bool showVolume: setting("volume", true) !== false
   readonly property bool showBrightness: setting("brightness", true) !== false
@@ -995,7 +986,7 @@ Item {
     if (next && next.start - idleClock.date.getTime() < 12 * 3600000 && next.start > idleClock.date.getTime())
       items.push({ key: "event", text: "󰃭 " + Model.untilText(next.start, idleClock.date.getTime()), color: accentColor })
     var festivals = calendar.todayAllDay
-    if (festivals.length > 0) items.push({ key: "festival", text: "✦ " + festivals[0], color: orangeColor })
+    if (festivals.length > 0) items.push({ key: "festival", text: festivals[0], color: orangeColor })
     if (notifications.doNotDisturb) items.push({ key: "dnd", text: "󰂛 Silenced", color: orangeColor })
     return items
   }
@@ -1134,8 +1125,12 @@ Item {
     hud = null
     userExpanded = true
     if (!openFocus && !calendarOpen) {
-      openFocus = "calendar"
-      calendarOpen = true
+      if (clocks && clocks.timerActive) openFocus = "pomodoro"
+      else if (hasMedia) openFocus = "media"
+      else {
+        openFocus = "calendar"
+        calendarOpen = true
+      }
     }
     // Opened without the pointer on it (IPC, keybind): close on its own.
     if (!hovered) {
@@ -1525,7 +1520,7 @@ Item {
         readonly property real x0: island.x
         readonly property real x1: island.x + island.width
         readonly property real h: island.height
-        readonly property real r: Math.max(0, Math.min(root.isIdleState ? island.radius : root.s(26), h - e, island.width / 2))
+        readonly property real r: Math.max(0, Math.min(root.isIdleState ? stage.r : root.s(26), h - e, island.width / 2))
 
         ShapePath {
           strokeColor: "transparent"
@@ -1895,7 +1890,7 @@ Item {
         visible: opacity > 0.01
         enabled: root.userExpanded
 
-        Behavior on x { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+        // Synchronous tracking without lag
         Behavior on y { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
         Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
@@ -1913,6 +1908,7 @@ Item {
             glyph: "󰃭"
             tooltipText: "Calendar"
             isActive: root.view === "calendar-expanded"
+            side: "left"
             island: root
             onClicked: {
               root.openFocus = "calendar"
@@ -1927,6 +1923,7 @@ Item {
             glyph: ""
             tooltipText: "Pomodoro"
             isActive: root.view === "clock-expanded"
+            side: "left"
             island: root
             onClicked: {
               root.openFocus = "pomodoro"
@@ -1941,6 +1938,7 @@ Item {
             glyph: "󰎆"
             tooltipText: "Now Playing"
             isActive: root.view === "media-expanded"
+            side: "left"
             island: root
             onClicked: {
               root.openFocus = "media"
@@ -1969,7 +1967,7 @@ Item {
         visible: opacity > 0.01
         enabled: root.userExpanded
 
-        Behavior on x { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
+        // Synchronous tracking without lag
         Behavior on y { SpringAnimation { spring: 3.5; damping: 0.82; mass: 1.0; epsilon: 0.25 } }
         Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
@@ -1987,6 +1985,7 @@ Item {
             glyph: "󰉋"
             tooltipText: "File Shelf"
             isActive: root.view === "shelf-expanded"
+            side: "right"
             island: root
             onClicked: {
               root.openFocus = "shelf"
@@ -2001,6 +2000,7 @@ Item {
             glyph: "󰈀"
             tooltipText: "Port Watcher"
             isActive: root.view === "ports-expanded"
+            side: "right"
             island: root
             onClicked: {
               root.openFocus = "ports"

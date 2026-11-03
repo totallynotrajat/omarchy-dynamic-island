@@ -175,7 +175,7 @@ Item {
       }
 
       Text {
-        text: (island && island.sink) ? island.sink : "Default Output"
+        text: (island && island.sink) ? (island.sink.description || island.sink.nickname || island.sink.name || "Default Output") : "Default Output"
         textFormat: Text.PlainText
         renderType: Text.NativeRendering
         font.family: island ? island.fontFamily : ""
@@ -276,6 +276,11 @@ Item {
         enabled: island && island.mediaCanSeek
         cursorShape: (island && island.mediaCanSeek) ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: function(mouse) { if (island) island.mediaSeek(mouse.x / width) }
+        onPositionChanged: function(mouse) {
+          if (pressed && island) {
+            island.mediaSeek(Math.max(0, Math.min(1, mouse.x / width)))
+          }
+        }
       }
     }
   }

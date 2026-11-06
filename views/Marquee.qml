@@ -3,8 +3,9 @@ import qs.Commons
 
 // Text that loops right-to-left forever. Two copies of the text sit in a row
 // one gap apart; the row slides left by exactly one copy plus the gap and
-// then starts over, so the seam is invisible. The edges fade into the island
-// color instead of cutting letters off hard.
+// then starts over, so the seam is invisible. The edges fade out instead of
+// cutting letters off hard. (fadeColor and friends are kept for older
+// callers; the fade masks the text, so it works on see-through glass.)
 Item {
   id: marquee
 
@@ -27,6 +28,10 @@ Item {
 
   clip: true
   implicitHeight: first.implicitHeight
+
+  Item {
+    id: viewport
+    anchors.fill: parent
 
   Row {
     id: strip
@@ -52,6 +57,7 @@ Item {
       color: marquee.color
     }
   }
+  }
 
   NumberAnimation {
     id: scroll
@@ -72,40 +78,8 @@ Item {
     if (scroll.running) scroll.restart()
   }
 
-  Row {
-    anchors.left: parent.left
-    height: parent.height
-    Repeater {
-      model: 6
-      Rectangle {
-        required property int index
-        width: marquee.fadeWidth / 6
-        height: parent.height
-        opacity: 1 - index / 6
-        gradient: Gradient {
-          GradientStop { position: 0; color: marquee.fadeTop }
-          GradientStop { position: 1; color: marquee.fadeBottom }
-        }
-      }
-    }
-  }
-
-  Row {
-    anchors.right: parent.right
-    height: parent.height
-    layoutDirection: Qt.RightToLeft
-    Repeater {
-      model: 6
-      Rectangle {
-        required property int index
-        width: marquee.fadeWidth / 6
-        height: parent.height
-        opacity: 1 - index / 6
-        gradient: Gradient {
-          GradientStop { position: 0; color: marquee.fadeTop }
-          GradientStop { position: 1; color: marquee.fadeBottom }
-        }
-      }
-    }
+  EdgeFade {
+    target: viewport
+    size: marquee.fadeWidth
   }
 }

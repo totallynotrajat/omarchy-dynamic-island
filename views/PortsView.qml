@@ -9,7 +9,7 @@ Item {
   id: view
 
   property var island: null
-  readonly property int pad: island ? island.s(22) : 22
+  readonly property int pad: 0
   property var portsList: []
   property string lastRaw: ""
 
@@ -20,7 +20,7 @@ Item {
 
   Process {
     id: portScanner
-    running: true
+    running: false
     command: ["python3", Qt.resolvedUrl("../sources/smart-port-scanner.py").toString().replace(/^file:\/\//, "")]
     stdout: StdioCollector {
       onStreamFinished: {
@@ -72,13 +72,14 @@ Item {
   }
 
   onVisibleChanged: if (visible) refresh()
+  Component.onCompleted: refresh()
 
   // ------------------------------------------------------------ Header
   Item {
     id: header
     x: view.pad
-    y: island ? island.s(14) : 14
-    width: parent.width - view.pad - (island ? island.s(14) : 14)
+    y: 0
+    width: parent.width
     height: island ? island.s(28) : 28
 
     Row {
@@ -138,7 +139,7 @@ Item {
   // ------------------------------------------------------------ Port rows
   ListView {
     id: list
-    x: island ? island.s(12) : 12
+    x: 0
     y: header.y + header.height + (island ? island.s(8) : 8)
     width: parent.width - x * 2
     height: parent.height - y - (island ? island.s(16) : 16)
@@ -312,7 +313,6 @@ Item {
 
   ListFade {
     flick: list
-    tone: island ? island.surfaceBottom : "black"
     size: island ? island.s(18) : 18
   }
 }

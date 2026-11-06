@@ -12,7 +12,9 @@ Item {
   property var island: null
   readonly property int pad: island ? island.s(22) : 22
   readonly property string home: Quickshell.env("HOME") || ""
-  property var stagedItems: []
+  // On the island, so the shelf outlasts the notch closing.
+  readonly property var stagedItems: island ? island.shelfItems : []
+  function setItems(list) { if (island) island.shelfItems = list }
 
   Process {
     id: shelfCmdRunner
@@ -49,11 +51,11 @@ Item {
     for (var i = 0; i < view.stagedItems.length; i++) {
       if (i !== index) copy.push(view.stagedItems[i])
     }
-    view.stagedItems = copy
+    view.setItems(copy)
   }
 
   function clearAll() {
-    view.stagedItems = []
+    view.setItems([])
   }
 
   function addPath(p) {
@@ -63,7 +65,7 @@ Item {
     var name = parts[parts.length - 1] || trimmed
     var list = view.stagedItems.slice()
     list.unshift({ name: name, path: trimmed, isDir: !name.includes(".") })
-    view.stagedItems = list
+    view.setItems(list)
   }
 
   // ------------------------------------------------------------ Header

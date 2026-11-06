@@ -40,64 +40,60 @@ Item {
     return v === undefined || v === null ? fallback : v
   }
 
-  readonly property bool notch: setting("style", "notch") !== "island"
   readonly property bool blackBackground: setting("background", "theme") === "black"
-  readonly property bool idleHidden: setting("idle", "pill") === "hidden"
   readonly property real scaleFactor: Math.max(0.6, Math.min(2, Number(setting("scale", 1)) || 1))
-  readonly property int topMargin: notch ? 0 : s(Number(setting("topMargin", 6)))
-  // Notch style: satellites start below the resting notch's lip, which is
-  // just past the bar's bottom edge. The floating capsule already sits lower.
-  readonly property real satelliteTop: notch ? s(Model.sizes["idle"].h + 6) : s(12)
-  readonly property bool reserveSpace: setting("reserveSpace", true) !== false
+  readonly property bool reserveSpace: setting("reserveSpace", false) === true
   readonly property string monitorSetting: String(setting("monitor", "primary"))
-  readonly property bool expandOnHover: setting("expandOnHover", false) === true
+  // Boring Notch: hovering the closed notch opens it after a short wait.
+  readonly property bool openOnHover: setting("openOnHover", true) !== false
+  readonly property int hoverDelay: {
+    var v = Number(setting("hoverDelay", 150))
+    return isNaN(v) ? 150 : Math.max(0, Math.min(2000, v))
+  }
+  // The clock is Omarchy's bar clock: the same format setting, the same
+  // alternate, and right-click walks the same ring in the same order
+  // (Omarchy's clock presets, then the alternate and the current format if
+  // they are something else). Day and month names follow the Omarchy
+  // language, and a format with seconds ticks every second.
   readonly property string clockFormat: String(setting("clockFormat", "dddd HH:mm"))
-  readonly property var clockFormats: [
-    "dddd HH:mm",
-    "dddd h:mm AP",
-    "HH:mm",
-    "h:mm AP",
-    "ddd d MMM HH:mm",
-    "ddd d MMM h:mm AP",
-    "d MMMM 'W'ww yyyy",
-    "yyyy-MM-dd HH:mm"
-  ]
+  readonly property string clockFormatAlt: String(setting("clockFormatAlt", "d MMMM 'W'ww yyyy"))
+  readonly property var clockFormats: Model.clockFormatRing(clockFormat, clockFormatAlt)
   property string activeClockFormat: clockFormat
+  onClockFormatChanged: activeClockFormat = clockFormat
+  readonly property bool clockShowsSeconds: Model.clockNeedsSeconds(activeClockFormat)
+  readonly property var clockLocale: Qt.locale(I18n.formatLocale)
 
   readonly property string formattedClockText: {
-    idleClock.date
-    return Model.formatClockDate(idleClock.date, activeClockFormat)
+    var date = idleClock.date
+    // The ISO week goes in as a literal, its digits localized like the rest.
+    var week = Model.pad2(Model.isoWeek(date.getFullYear(), date.getMonth(), date.getDate()))
+    week = week.split("").map(function(digit) { return I18n.formatNumber(digit) }).join("")
+    return date.toLocaleString(clockLocale, activeClockFormat.replace(/ww/g, week))
   }
 
   function cycleClockFormat() {
     var idx = clockFormats.indexOf(activeClockFormat)
-    if (idx === -1) idx = 0
     var next = clockFormats[(idx + 1) % clockFormats.length]
+    if (!next || next === activeClockFormat) return
     activeClockFormat = next
     saveSettings({ clockFormat: next })
   }
+
   readonly property bool showVolume: setting("volume", true) !== false
   readonly property bool showBrightness: setting("brightness", true) !== false
   readonly property bool showCharging: setting("charging", true) !== false
   readonly property bool showTrackChange: setting("trackChange", true) !== false
   readonly property bool showRecording: setting("recording", true) !== false
   readonly property bool showMic: setting("mic", true) !== false
-  // Match a real display cutout (MacBook notch): its size in pixels.
-  readonly property var notchSize: ({
-    w: Math.max(0, Number(setting("notchWidth", 0)) || 0),
-    h: Math.max(0, Number(setting("notchHeight", 0)) || 0),
-    r: Math.max(0, Number(setting("notchRadius", 0)) || 0)
-  })
-  readonly property string idleFace: {
-    var f = String(setting("idleFace", "ticker"))
-    return ["ticker", "clock", "lens", "none"].indexOf(f) !== -1 ? f : "ticker"
-  }
   readonly property bool artworkTint: setting("visualizerColor", "accent") === "artwork"
-  readonly property bool glowEnabled: setting("glow", false) === true
   readonly property int mediaLingerMs: Math.max(0, Number(setting("mediaLingerSeconds", 30))) * 1000
 
   property var disabledPlugins: []
   property bool configLoaded: false
+  // How Omarchy's bar paints its background: opaque, glassy or none.
+  property string barLook: "opaque"
+  // The bar's center section, where the spacer the notch sits on lives.
+  property var barCenter: []
 
   FileView {
     path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
@@ -107,6 +103,9 @@ Item {
       var cfg = Model.parseConfig(text())
       root.settings = Model.entryFor(cfg, root.pluginId)
       root.disabledPlugins = Array.isArray(cfg.disabledPlugins) ? cfg.disabledPlugins : []
+      var bar = cfg && cfg.bar ? cfg.bar : {}
+      root.barLook = String(bar.background || (bar.transparent === true ? "none" : "opaque"))
+      root.barCenter = bar.layout && Array.isArray(bar.layout.center) ? bar.layout.center : []
       root.configLoaded = true
     }
     onLoadFailed: {
@@ -116,26 +115,11 @@ Item {
   }
 
   // ------------------------------------------------------------------
-  // Theme: Omarchy's shell tokens, plus the theme's green/yellow for the
-  // charging and privacy tones the shell palette does not name.
+  // Theme. The notch is part of Omarchy's bar: at rest it is painted
+  // exactly as the bar is (clear, glassy or opaque) with the clock in the
+  // bar's font and text color, so it is just the bar clock. Anything
+  // happening fills it with the bar's own background color, solid.
   // ------------------------------------------------------------------
-  property bool glassMode: true
-  property bool leftSatHovered: false
-  property bool rightSatHovered: false
-
-  function toggleGlassMode() {
-    glassMode = !glassMode
-    showHud({
-      key: "mode",
-      layout: "toast",
-      title: glassMode ? "Raycast Glass" : "Sharp Omarchy",
-      message: glassMode ? "Frosted translucent glass with Osaka Jade tint" : "Solid high-contrast obsidian styling",
-      icon: glassMode ? "󰒓" : "󰍹",
-      color: accentColor,
-      duration: 1800
-    })
-  }
-
   property var themeColors: ({})
 
   FileView {
@@ -146,79 +130,93 @@ Item {
 
   Connections {
     target: Color
-    function onBackgroundChanged() { themeColorsFile.reload() }
+    function onBackgroundChanged() { themeColorsFile.reload(); barTextProbe.restart() }
     function onAccentChanged() { themeColorsFile.reload() }
   }
 
-  // Graceful color transitions on theme switch
-  property color activeBackground: Color.background
-  property color activeForeground: Color.foreground
-  property color activeAccent: Color.accent
-  property color activeUrgent: Color.urgent
-
-  Behavior on activeBackground { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-  Behavior on activeForeground { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-  Behavior on activeAccent { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-  Behavior on activeUrgent { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-
-  readonly property color surface: blackBackground ? "#000000" : activeBackground
-  readonly property color fg: blackBackground ? "#f5f5f7" : activeForeground
+  readonly property color barBackground: Color.bar.background
+  readonly property color surface: blackBackground ? "#000000"
+    : Qt.rgba(barBackground.r, barBackground.g, barBackground.b, 1)
+  readonly property color fg: blackBackground ? "#f5f5f7" : Color.bar.text
   readonly property color fgDim: Util.alpha(fg, 0.6)
-  readonly property color accentColor: activeAccent
-  readonly property color urgentColor: activeUrgent
+  readonly property color accentColor: Color.accent
+  readonly property color urgentColor: Color.urgent
   // colors.toml names its palette (green, orange...); older themes use color0-15
-  readonly property color greenColor: themeColors.color2 || themeColors.green || activeAccent
-  readonly property color orangeColor: themeColors.color3 || themeColors.orange || activeUrgent
-  readonly property color outline: blackBackground ? "transparent" : Util.alpha(activeForeground, 0.1)
+  readonly property color greenColor: themeColors.color2 || themeColors.green || accentColor
+  readonly property color orangeColor: themeColors.color3 || themeColors.orange || urgentColor
 
-  // Blend in smoothly when idle; enrich into frosted glass when active/expanded
-  readonly property bool isIdleState: (view === "idle" || view === "idle-hover") && !userExpanded
+  // Frosted glass, as Raycast and macOS draw it: anything going on fills the
+  // notch with the bar's color, see-through, over a blur of what is behind
+  // (Hyprland does the blur; see syncGlass). "glass": false makes it solid.
+  readonly property bool glassOn: !blackBackground && setting("glass", true) !== false
+  readonly property real glassOpacity: {
+    var v = Number(setting("glassOpacity", 0.62))
+    return isNaN(v) ? 0.62 : Math.max(0.35, Math.min(1, v))
+  }
+  readonly property real activeAlpha: glassOn ? glassOpacity : 1
 
-  readonly property color rawSurfaceTop: isIdleState
-    ? (hovered ? Util.alpha(surface, 0.65) : Util.alpha(surface, 0.38))
-    : (glassMode ? Qt.tint(surface, Util.alpha(accentColor, 0.14)) : Qt.tint(surface, Util.alpha(activeForeground, blackBackground ? 0.05 : 0.055)))
+  // At rest the notch paints nothing: Omarchy's bar draws its background
+  // (opaque, glassy or clear) right across the screen, under the island, so
+  // anything painted here would double it. The bar shows through instead.
+  readonly property real restingAlpha: 0
+  // A clear bar picks its text color against the wallpaper; the island asks
+  // the same helper, so the resting clock matches the bar beside it.
+  property color clearBarText: Color.bar.text
 
-  readonly property color rawSurfaceBottom: isIdleState
-    ? (hovered ? Util.alpha(surface, 0.55) : Util.alpha(surface, 0.28))
-    : (glassMode ? Qt.darker(surface, 1.15) : (blackBackground ? "#000000" : Qt.darker(surface, 1.28)))
-
-  property color surfaceTop: rawSurfaceTop
-  property color surfaceBottom: rawSurfaceBottom
-  Behavior on surfaceTop { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-  Behavior on surfaceBottom { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-
-  function bodyAt(t) {
-    var a = surfaceTop, b = surfaceBottom
-    return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1)
+  Process {
+    id: barTextProc
+    command: ["omarchy-bar-text-color", "top", String(root.barHeight),
+              Model.hexColor(Color.bar.text), Model.hexColor(Color.background)]
+    stdout: SplitParser {
+      onRead: function(line) {
+        var v = String(line || "").trim()
+        if (/^#[0-9A-Fa-f]{6}$/.test(v)) root.clearBarText = v
+      }
+    }
   }
 
-  readonly property color rawRim: isIdleState
-    ? (hovered ? Util.alpha(activeForeground, 0.1) : Util.alpha(activeForeground, 0.03))
-    : Util.alpha(activeForeground, blackBackground ? 0.08 : 0.12)
+  Timer {
+    id: barTextProbe
+    interval: 300
+    running: true
+    onTriggered: if (root.barLook === "none" && !barTextProc.running) barTextProc.running = true
+  }
 
-  property color rim: rawRim
-  Behavior on rim { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-  // Numbers, time and icons in the theme's (Nerd) monospace; words in iA
-  // Writer Quattro, which Omarchy ships and which sits well beside a mono.
-  // "textFont": "theme" keeps everything in the theme font.
+  // The wallpaper changes with the theme (and on its own); both land here.
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: barTextProbe.restart()
+  }
+  onBarLookChanged: barTextProbe.restart()
+
+  // Compatibility with views that shade their own fades.
+  readonly property color surfaceTop: surface
+  readonly property color surfaceBottom: surface
+  function bodyAt(t) { return surface }
+
+  // Everything in the theme's font, like the rest of Omarchy.
   readonly property string fontFamily: Style.font.family
-  readonly property string textFamily: {
-    var t = String(setting("textFont", "iA Writer Quattro V"))
-    return t === "theme" ? Style.font.family : t
-  }
+  readonly property string textFamily: Style.font.family
 
   function s(px) { return Math.round(Style.space(px) * scaleFactor) }
+  function f(px) { return Math.max(6, Math.round(px * Style.fontScale * scaleFactor)) }
+
+  // The bar's thickness on this screen: the closed notch is exactly as tall.
+  readonly property int barHeight: {
+    var b = shell && shell.bar ? shell.bar : null
+    var h = b && typeof b.barSizeFor === "function" && win.screen ? b.barSizeFor(win.screen.name) : (b ? b.barSize : 0)
+    return h > 0 ? h : Style.bar.sizeHorizontal
+  }
+  readonly property int clockPixelSize: Style.font.body
+  // At rest over a clear bar the clock takes the bar's wallpaper-aware text
+  // color; once the notch fills in, the bar's text color on its background.
+  readonly property color clockColor: (mode === "idle" && !hovered && barLook === "none") ? clearBarText : fg
 
   // Device pixel grid (1.25 on a 125% display).
   readonly property real dpr: win.devicePixelRatio > 0 ? win.devicePixelRatio : 1
   function snap(v) { return Math.round(v * dpr) / dpr }
-
-  // Content appears only once the shape has (nearly) reached the new size,
-  // so a view is never drawn cut off by a shape still growing towards it.
-  readonly property bool shapeSettled: Math.abs(stage.w - s(viewSize.w)) < s(18)
-    && Math.abs(stage.h - s(viewSize.h)) < s(12)
-  function showing(name) { return view === name }
-  function f(px) { return Math.max(6, Math.round(px * Style.fontScale * scaleFactor)) }
 
   // Nothing announces itself for the first moments after (re)load, so the
   // initial volume/brightness/battery reads do not pop HUDs.
@@ -259,6 +257,10 @@ Item {
   // Demo data (IPC `demo`) stands in for live sources so every state can be
   // previewed without a player running.
   property var demo: null
+  // What a demo started, so `demo off` stops only that and never the
+  // user's own timer or stopwatch.
+  property bool demoTimer: false
+  property bool demoStopwatch: false
   readonly property var demoMedia: demo && demo.media ? demo.media : null
   readonly property bool demoOwnsMedia: !!demo && demo.media !== undefined
 
@@ -289,7 +291,7 @@ Item {
   Timer {
     interval: 500
     repeat: true
-    running: root.hasMedia && root.view === "media-expanded"
+    running: root.hasMedia && root.mode === "open" && root.tab === "home"
     triggeredOnStart: true
     onTriggered: {
       if (root.demoMedia) {
@@ -395,7 +397,6 @@ Item {
 
   onChargingChanged: {
     if (!ready || !showCharging || !charging) return
-    edgeSweep++
     showHud({
       key: "power",
       layout: "label",
@@ -555,6 +556,7 @@ Item {
     syncTakeovers()
     fillDefaultSettings()
     syncKeybind()
+    syncGlass()
   }
 
   function syncTakeovers() {
@@ -673,6 +675,104 @@ Item {
       "sh", bindingsFile, pluginId, block, bind, String(parsed.mask), parsed.key])
   }
 
+  // ------------------------------------------------------------------
+  // Glass: Hyprland blurs behind the island the way it does behind the
+  // Glassy bar, from a toggle file in Omarchy's toggles folder (which
+  // Hyprland reads). It is written while "glass" is on and removed when it
+  // is turned off or the plugin goes, and Hyprland reloads only on a change.
+  // ------------------------------------------------------------------
+  readonly property string glassToggleFile:
+    (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) +
+    "/omarchy/toggles/hypr/dynamic-island-glass.lua"
+  readonly property string glassRule: [
+    "-- Added by the " + pluginId + " plugin and removed with it (or with \"glass\": false",
+    "-- in its entry in ~/.config/omarchy/shell.json): frosted glass behind the",
+    "-- island, like the Glassy bar.",
+    "-- Hyprland only blurs anything while blur is on, so it is turned on with",
+    "-- Omarchy's glass settings, and windows are kept out of it unless Glassy",
+    "-- windows are on too: only the island frosts.",
+    "require(\"default.hypr.glass\")()",
+    "",
+    "local paths = require(\"default.hypr.paths\")",
+    "local glassy = io.open(paths.state_home .. \"/omarchy/toggles/hypr/window-glassy.lua\", \"r\")",
+    "if glassy then",
+    "  glassy:close()",
+    "else",
+    "  o.window({ class = \".*\" }, { no_blur = true })",
+    "end",
+    "",
+    "hl.layer_rule({",
+    "  match = { namespace = \"^dynamic-island$\" },",
+    "  blur = true,",
+    "  ignore_alpha = 0.3,",
+    "})"
+  ].join("\n")
+  readonly property string hyprReload:
+    "{ \"$OMARCHY_PATH/bin/omarchy-restart-hyprctl\" 2>/dev/null || hyprctl reload >/dev/null 2>&1; }; "
+  readonly property string removeGlassRule:
+    "[ -f \"$1\" ] || exit 0; rm -f \"$1\" && " + hyprReload + "true"
+
+  onGlassOnChanged: syncGlass()
+
+  function syncGlass() {
+    if (!configLoaded) return
+    if (!glassOn) {
+      Quickshell.execDetached(["sh", "-c", removeGlassRule, "sh", glassToggleFile])
+      return
+    }
+    // $1 file, $2 contents. Written beside it and renamed over it, so
+    // Hyprland never reads half a file.
+    Quickshell.execDetached(["sh", "-c",
+      "[ -L \"$1\" ] && exit 0; [ -f \"$1\" ] && [ \"$(cat \"$1\")\" = \"$2\" ] && exit 0; " +
+      "mkdir -p \"$(dirname \"$1\")\" || exit 0; " +
+      "t=$(mktemp \"$1.XXXXXX\") || exit 0; " +
+      "printf '%s\\n' \"$2\" > \"$t\" && mv -f \"$t\" \"$1\" || { rm -f \"$t\"; exit 0; }; " + hyprReload,
+      "sh", glassToggleFile, glassRule])
+  }
+
+  // ------------------------------------------------------------------
+  // Room in the bar. The notch sits on the bar's center section, an
+  // omarchy.spacer the bar centers on the screen with the other center icons
+  // hanging off both its edges. Keeping that spacer exactly as wide as the
+  // closed notch puts those icons the bar's usual gap from it, the same on
+  // both sides: tight around the clock at rest, wider while a live
+  // activity's wings show (so they never cover an icon). Brief things (a
+  // HUD, the open panel) float over the bar and move nothing. Growing is
+  // applied at once, shrinking a moment later, so icons don't hop back and
+  // forth. Only a center section that is just one spacer is touched;
+  // "fitBarSpacer": false leaves it alone.
+  // ------------------------------------------------------------------
+  readonly property bool fitBarSpacer: setting("fitBarSpacer", true) !== false
+  readonly property real liveWingWidth: live === "" ? 0
+    : (live === "media" ? barHeight - s(10) + s(14) : s(Model.wingWidths[live] || 50))
+  readonly property int barRoom: Math.ceil(live === "" ? clockWidth : clockWidth + 2 * liveWingWidth + 2 * earClosed)
+  readonly property var barSpacer: barCenter.length === 1 && barCenter[0]
+    && String(barCenter[0].id || "") === "omarchy.spacer" ? barCenter[0] : null
+
+  onBarRoomChanged: {
+    var current = barSpacer ? Number(barSpacer.size) || 0 : 0
+    barRoomTimer.interval = barRoom >= current ? 60 : 1500
+    barRoomTimer.restart()
+  }
+  onBarSpacerChanged: barRoomTimer.restart()
+  onFitBarSpacerChanged: barRoomTimer.restart()
+
+  Timer {
+    id: barRoomTimer
+    interval: 60
+    onTriggered: root.syncBarRoom()
+  }
+
+  function syncBarRoom() {
+    if (!configLoaded || !fitBarSpacer || !barSpacer || barRoom <= 0) return
+    if (Number(barSpacer.size) === barRoom) return
+    // Through `omarchy bar set`, so the shell itself writes the change (a
+    // panel plugin may not edit the bar's layout directly).
+    Quickshell.execDetached(["sh", "-c",
+      "\"$OMARCHY_PATH/bin/omarchy-bar\" set omarchy.spacer size \"$1\" --json --section center --index 0 >/dev/null 2>&1",
+      "sh", String(barRoom)])
+  }
+
   // The shell destroys this object on reloads and restarts too, so only act
   // if, a few seconds later, the plugin is really gone from shell.json. Then
   // hand back everything the island took over and remove its keybinding.
@@ -687,8 +787,9 @@ Item {
     "  sleep 1; jq -e --arg p \"omarchy.$t\" '(.disabledPlugins // []) | index($p)' \"$c\" >/dev/null 2>&1 " +
     "    || rm -f \"$2/$t-takeover\"; " +
     "done; " +
+    "(set -- \"$4\"; " + removeGlassRule + "); " +
     "set -- \"$3\" \"$1\"; " + removeBindingsBlock,
-    "sh", pluginId, stateDir, bindingsFile])
+    "sh", pluginId, stateDir, bindingsFile, glassToggleFile])
 
   // Omarchy's `omarchy osd` and every script that calls it land here while
   // the island owns the OSD. Volume comes from PipeWire already, so its
@@ -742,18 +843,6 @@ Item {
     collapse()
   }
 
-  // Opens the list of waiting notifications (bell click, or Omarchy's
-  // notification-history keybind).
-  function openInbox() {
-    hud = null
-    inboxOpen = true
-    userExpanded = true
-    if (!hovered) {
-      collapseTimer.interval = 8000
-      collapseTimer.restart()
-    }
-  }
-
   // An icon URL that will actually load, or "" for the glyph fallback.
   // Quickshell hands appIcon over as image://icon/<name> even when the theme
   // has no such icon (which renders as a magenta checkerboard), so theme
@@ -796,31 +885,6 @@ Item {
   readonly property var activity: activitySource.current
 
   function endActivity(id) { activitySource.end(id, "") }
-
-  // ---- calendar view
-  property bool calendarOpen: false
-  // The "add calendar" field. Kept here (not in the view) so the keyboard
-  // grab below is derived from it and can never get out of step with it.
-  property bool calendarAdding: false
-  readonly property bool calendarTyping: calendarAdding && view === "calendar-expanded"
-
-  function openCalendar() {
-    if (userExpanded && calendarOpen) {
-      collapse()
-      return
-    }
-    hud = null
-    inboxOpen = false
-    outputsOpen = false
-    calendarOpen = true
-    userExpanded = true
-    // No calendars yet: open straight into the field.
-    calendarAdding = calendarSource.sources.length === 0
-    if (!hovered) {
-      collapseTimer.interval = 10000
-      collapseTimer.restart()
-    }
-  }
 
   // Calendar links can also live in this plugin's shell.json entry
   // ("calendars"); the settings watcher picks the change up.
@@ -922,10 +986,6 @@ Item {
   // Audio outputs ("Play on")
   // ------------------------------------------------------------------
   readonly property var audioOutputs: pwNodes.filter(function(n) { return n && n.isSink && !n.isStream && n.audio })
-  property bool outputsOpen: false
-
-  function openOutputs() { outputsOpen = true; userExpanded = true }
-  function closeOutputs() { outputsOpen = false }
 
   function outputGlyph(node) {
     if (!node) return "󰓃"
@@ -966,124 +1026,119 @@ Item {
   }
 
   // ------------------------------------------------------------------
-  // Idle face: the resting clock and the width it needs.
+  // The clock and the width it needs.
   // ------------------------------------------------------------------
   SystemClock {
     id: idleClock
-    precision: SystemClock.Minutes
+    precision: root.clockShowsSeconds ? SystemClock.Seconds : SystemClock.Minutes
   }
 
   TextMetrics {
-    id: idleMetrics
-    font.family: root.textFamily || root.fontFamily
-    font.pixelSize: root.f(13)
-    font.bold: true
-    // Room for IdleFace's single indicator: ring + countdown, media meter, or meeting dot
-    text: root.formattedClockText + (clocks && clocks.timerActive ? "    00:00"
-      : ((root.mediaPlaying || (root.calendar && root.calendar.soon)) ? "  ." : ""))
+    id: clockMetrics
+    font.family: root.fontFamily
+    font.pixelSize: root.clockPixelSize
+    text: root.formattedClockText
+  }
+
+  // Omarchy's bar clock pads its label by 8.75 spacing units either side.
+  readonly property real clockWidth: Math.ceil(clockMetrics.advanceWidth) + 2 * Style.spaceReal(8.75)
+
+  function formatElapsed(seconds) { return Model.formatTime(seconds) }
+  function formatStopwatch(ms) {
+    var sec = Math.max(0, ms) / 1000
+    return sec < 3600 ? Model.formatClock(sec, true) : Model.formatTime(sec)
+  }
+
+  readonly property string batteryGlyph: Model.batteryIcon(batteryLevel, charging)
+  readonly property string batteryPercentText: Model.percentText(batteryLevel)
+
+  // Bring the playing app's window forward (cover click, like Boring Notch).
+  function raisePlayer() {
+    if (player && player.canRaise) player.raise()
+    collapse()
   }
 
   // ------------------------------------------------------------------
-  // Edge light: what the lip of the island says about the current state.
-  // ------------------------------------------------------------------
-  readonly property var edgeState: {
-    var v = view
-    if (v === "hud-progress" && hud)
-      return { tone: hud.color || fg, level: 0.95, progress: Math.max(0, Math.min(1, Number(hud.value) || 0)) }
-    if (v === "timer" || (v === "clock-expanded" && clockSource.timerActive))
-      return { tone: orangeColor, level: clockSource.timerPaused ? 0.35 : 0.95, progress: 1 - clockSource.timerProgress }
-    if (v === "stopwatch" || v === "clock-expanded")
-      return { tone: accentColor, level: clockSource.stopwatchRunning ? 0.8 : 0.3, pulse: clockSource.stopwatchRunning, period: 2000 }
-    if (v.indexOf("recording") === 0)
-      return { tone: urgentColor, level: 0.95, pulse: true, period: 1600 }
-    if ((v === "activity" || v === "activity-expanded") && activity && activity.progress >= 0)
-      return { tone: toneFor(activity.color), level: 0.95, progress: activity.progress }
-    if (v === "activity" || v === "activity-expanded")
-      return { tone: activity ? toneFor(activity.color) : accentColor, level: 0.8, pulse: true, period: 1800 }
-    if (v === "media" || v === "hud-track" || v === "media-expanded")
-      return { tone: mediaTint, level: mediaPlaying ? (v === "media-expanded" ? 0.6 : 0.9) : 0.25, pulse: mediaPlaying, period: 900 }
-    if (v === "notification" || v === "notification-actions")
-      return { tone: notification && notification.critical ? urgentColor : accentColor, level: 0.55 }
-    if (v === "hud-label" && hud)
-      return { tone: hud.color || accentColor, level: 0.85 }
-    if (v === "mic")
-      return { tone: cameraActive ? greenColor : orangeColor, level: 0.85, pulse: true, period: 2400 }
-    if (v === "calendar")
-      return { tone: accentColor, level: 0.85, pulse: true, period: 2400 }
-    if (v === "inbox")
-      return { tone: accentColor, level: 0.6 }
-    if (v === "idle" || v === "idle-hover")
-      return { tone: accentColor, level: v === "idle-hover" ? 0.6 : 0.32 }
-    return { tone: accentColor, level: 0.2 }
-  }
-  property int edgeSweep: 0
-
-  // A bead of light runs along the lip when something arrives.
-  onNotificationChanged: if (notification) edgeSweep++
-
-  // ------------------------------------------------------------------
-  // State
+  // State (Boring Notch model, see IslandModel.notchMode)
   // ------------------------------------------------------------------
   readonly property bool recordingActivity: showRecording
     && (demo && demo.recording !== undefined ? demo.recording === true : recording)
   readonly property bool mediaActivity: hasMedia && (mediaPlaying || mediaLinger || (demoMedia !== null))
   readonly property bool micActivity: showMic && (demo && demo.mic !== undefined ? demo.mic === true : micActive)
-  readonly property bool inboxActivity: showInbox && inbox.length > 0
+  readonly property bool inboxActivity: wantsNotifications && showInbox && inbox.length > 0
   readonly property bool timerActivity: clockSource.timerActive
   readonly property bool stopwatchActivity: clockSource.stopwatchActive
   readonly property bool scriptActivity: activitySource.current !== null
   readonly property bool calendarActivity: setting("calendar", true) !== false && calendarSource.soon
 
-  readonly property var activityList: Model.activities({
+  readonly property var liveList: Model.liveActivities({
     recording: recordingActivity,
+    timer: timerActivity,
     media: mediaActivity,
     mic: micActivity || (setting("camera", true) !== false && cameraActive),
-    inbox: inboxActivity,
-    timer: timerActivity,
-    stopwatch: stopwatchActivity,
     activity: scriptActivity,
-    calendar: calendarActivity
+    calendar: calendarActivity,
+    stopwatch: stopwatchActivity
   })
-  readonly property string primary: activityList.length > 0 ? activityList[0] : ""
-  readonly property string secondary: activityList.length > 1 ? activityList[1] : ""
+  readonly property string live: liveList.length > 0 ? liveList[0] : ""
+  // Kept for the IPC state dump and older callers.
+  readonly property string primary: live
+  readonly property string secondary: liveList.length > 1 ? liveList[1] : ""
 
   property bool userExpanded: false
-  property bool inboxOpen: false
-  // Which activity an opened island is about (the bubble's, when the
-  // bubble was clicked).
-  property string openFocus: ""
+  // The Shelf's files, kept here so they outlast the notch closing.
+  property var shelfItems: []
+  property string tab: "home"
+  property bool outputsOpen: false
   property var hud: null
-  readonly property bool hovered: islandHover.hovered || leftSatHovered || rightSatHovered
+  // True from a collapse until the shape has settled closed: it closes
+  // without overshoot (Boring Notch's critically damped close).
+  property bool collapsing: false
+  Timer { id: collapsingTimer; interval: 300; onTriggered: root.collapsing = false }
 
-  readonly property string view: Model.viewFor({
-    userExpanded: userExpanded,
-    inboxOpen: inboxOpen,
-    outputsOpen: outputsOpen,
-    calendarOpen: calendarOpen,
-    focus: openFocus,
-    hasMedia: hasMedia,
-    recording: recordingActivity,
-    hud: hud,
+  readonly property bool hovered: islandHover.hovered
+
+  readonly property string mode: Model.notchMode({
+    open: userExpanded,
     notification: notification !== null,
-    notificationActions: notification !== null && notification.actions.length > 0,
-    primary: primary,
-    idleHidden: idleHidden,
-    hovered: hovered
+    hud: hud,
+    live: live !== ""
   })
-  readonly property var viewCounts: ({ inbox: inbox.length, outputs: audioOutputs.length })
-  readonly property var viewSize: {
-    var v = Model.sizeFor(view, viewCounts, notchSize)
-    // The resting pill grows to fit what the ticker is showing, so the
-    // island breathes a little as the glances change.
-    if ((view === "idle" || view === "idle-hover") && (idleFace === "ticker" || idleFace === "clock")) {
-      var unit = Style.spacing.scale * scaleFactor
-      var needed = Math.ceil(idleMetrics.advanceWidth / unit) + 44 + (view === "idle-hover" ? 12 : 0)
-      return { w: Math.min(260, Math.max(v.w, needed)), h: v.h, r: v.r }
-    }
-    return v
+  // `view` names what is on screen, for the IPC state and older views.
+  readonly property string view: mode === "open" ? "open-" + tab : (mode === "live" ? live : mode)
+  readonly property bool isIdleState: mode === "idle"
+  // Kept for views that still ask (never true: the notch takes no keyboard).
+  readonly property bool calendarTyping: false
+  property bool calendarAdding: false
+  readonly property bool inboxOpen: userExpanded && tab === "inbox"
+  readonly property bool calendarOpen: userExpanded && tab === "calendar"
+
+  // ---- geometry (unscaled targets; the window animates towards them)
+  readonly property real earClosed: s(6)
+  readonly property real earOpen: s(19)
+  readonly property real cornerClosed: s(14)
+  readonly property real cornerOpen: s(24)
+
+  readonly property real wingWidth: {
+    if (mode === "live") return live === "media" ? barHeight - s(10) + s(14) : s(Model.wingWidths[live] || 50)
+    if (mode === "sneak") return s(Model.wingWidths.sneak)
+    if (mode === "expand") return s(Model.wingWidths.expand)
+    return 0
   }
-  function slotSize(name) { return Model.sizeFor(name, viewCounts, notchSize) }
-  readonly property bool showBubble: secondary !== "" && !userExpanded && hud === null
+
+  readonly property real openWidth: s(640)
+  readonly property real openHeight: barHeight + s(178)
+  readonly property real notificationHeight: barHeight + s(notification && notification.actions && notification.actions.length > 0 ? 118 : 80)
+
+  // Target body size (between the ears) and corner radii for the mode.
+  readonly property var target: {
+    var ear = earClosed, corner = cornerClosed
+    var w = clockWidth + 2 * wingWidth
+    var h = barHeight
+    if (mode === "open") { w = openWidth - 2 * earOpen; h = openHeight; ear = earOpen; corner = cornerOpen }
+    else if (mode === "notification") { w = s(420); h = notificationHeight; ear = earOpen; corner = cornerOpen }
+    return { w: w, h: h, ear: ear, corner: corner }
+  }
 
   function showHud(next) {
     hud = next
@@ -1093,80 +1148,128 @@ Item {
 
   Timer { id: hudTimer; onTriggered: root.hud = null }
 
-  function expand() {
+  readonly property var tabIds: Model.visibleTabs({ inbox: wantsNotifications && showInbox && inbox.length > 0 }).map(function(t) { return t.id })
+
+  onTabIdsChanged: if (tabIds.indexOf(tab) === -1) selectTab("home")
+
+  function selectTab(name) {
+    if (tabIds.indexOf(name) === -1) name = "home"
+    if (name !== "home") outputsOpen = false
+    tab = name
+  }
+
+  // Open the notch, on `name`'s tab if given. Opened without the pointer on
+  // it (keybind, IPC, a click that then leaves), it closes on its own.
+  function expand(name) {
+    if (name) selectTab(name)
+    else if (!userExpanded) selectTab(live ? Model.tabForActivity(live) : "home")
     hud = null
+    collapsing = false
     userExpanded = true
-    if (!openFocus && !calendarOpen) {
-      if (clocks && clocks.timerActive) openFocus = "pomodoro"
-      else if (hasMedia) openFocus = "media"
-      else {
-        openFocus = "calendar"
-        calendarOpen = true
-      }
-    }
-    // Opened without the pointer on it (IPC, keybind): close on its own.
+    hoverOpenTimer.stop()
     if (!hovered) {
-      collapseTimer.interval = 6000
-      collapseTimer.restart()
+      leaveTimer.interval = 6000
+      leaveTimer.restart()
     }
   }
 
+  // Set when the notch closes with the pointer on it (scroll up, the
+  // keybind, IPC): hover-open waits until the pointer has been off the notch
+  // for a moment. (A notch shrinking under a still pointer reads as a leave
+  // until it moves again, so a plain leave cannot end the hold.)
+  property bool hoverOpenHeld: false
+  Timer { id: holdRelease; interval: 1500; onTriggered: root.hoverOpenHeld = false }
+
   function collapse() {
+    if (!userExpanded) return
+    hoverOpenHeld = hovered
+    if (hovered) holdRelease.stop()
+    hoverOpenTimer.stop()
+    collapsing = true
+    collapsingTimer.restart()
     userExpanded = false
-    inboxOpen = false
     outputsOpen = false
-    calendarOpen = false
-    calendarAdding = false
-    openFocus = ""
-    collapseTimer.stop()
+    leaveTimer.stop()
   }
 
   function toggleExpanded() {
     if (userExpanded) collapse()
-    else expand()
+    else expand("")
   }
 
-  // Leaving an opened island closes it, the way a notch shelf does.
+  function openInbox() { expand("inbox") }
+  function openCalendar() {
+    if (userExpanded && tab === "calendar") collapse()
+    else expand("calendar")
+  }
+  function openOutputs() { selectTab("home"); outputsOpen = true }
+  function closeOutputs() { outputsOpen = false }
+
+  // Hover opens a resting or live notch after a moment; transient things
+  // (a HUD, a banner) never open under the pointer, so they can be read.
   Timer {
-    id: collapseTimer
-    interval: 500
-    onTriggered: if (!root.hovered && !root.calendarTyping) root.collapse()
+    id: hoverOpenTimer
+    interval: root.hoverDelay
+    onTriggered: {
+      if (root.hovered && !root.hoverOpenHeld && !root.userExpanded && (root.mode === "idle" || root.mode === "live"))
+        root.expand("")
+    }
   }
 
+  // Leaving closes it (Boring Notch closes 100ms after the pointer leaves).
   Timer {
-    id: hoverExpandTimer
-    interval: 380
-    onTriggered: if (root.hovered && !root.userExpanded && !root.notification && root.view !== "notification" && root.view !== "notification-actions") root.expand()
+    id: leaveTimer
+    interval: 100
+    onTriggered: if (!root.hovered) root.collapse()
   }
 
   onHoveredChanged: {
     if (hovered) {
-      collapseTimer.stop()
-      if (expandOnHover) hoverExpandTimer.restart()
+      holdRelease.stop()
+      leaveTimer.stop()
+      if (openOnHover && !userExpanded && !hoverOpenHeld) hoverOpenTimer.restart()
     } else {
-      hoverExpandTimer.stop()
+      if (hoverOpenHeld) holdRelease.restart()
+      hoverOpenTimer.stop()
       if (userExpanded) {
-        collapseTimer.interval = 500
-        collapseTimer.restart()
+        leaveTimer.interval = 100
+        leaveTimer.restart()
       }
     }
   }
 
-  function islandClicked(button) {
+  // A closed notch's state can change under a resting pointer (a HUD ends):
+  // pick hover-open back up then.
+  onModeChanged: if (hovered && openOnHover && !hoverOpenHeld && (mode === "idle" || mode === "live")) hoverOpenTimer.restart()
+
+  // `onClock`: the click landed on the clock (the middle of the top row).
+  function islandClicked(button, onClock) {
     if (button === Qt.MiddleButton) {
       if (hasMedia) mediaToggle()
       return
     }
-    if (button === Qt.RightButton && (view === "idle" || view === "idle-hover")) {
-      cycleClockFormat()
+    // Right-clicking the clock walks its formats, open or closed (hover
+    // opens the notch before a right click could land on a closed one).
+    if (button === Qt.RightButton) {
+      if (onClock) cycleClockFormat()
       return
     }
-    // The bell owns the pill when nothing else is live: open the inbox.
-    if (!userExpanded && primary === "inbox") {
-      openInbox()
-      return
-    }
-    toggleExpanded()
+    if (userExpanded) return
+    // A finished timer or a track change opens to what it was about.
+    if (hud && hud.tab) { var t = hud.tab; hud = null; expand(t); return }
+    if (hud && hud.layout === "track") { hud = null; expand("home"); return }
+    expand("")
+  }
+
+  // Two-finger swipe (scroll): down opens, up closes.
+  property real swipe: 0
+  Timer { id: swipeReset; interval: 250; onTriggered: root.swipe = 0 }
+
+  function handleWheel(dy) {
+    swipe += dy
+    swipeReset.restart()
+    if (!userExpanded && swipe <= -120) { swipe = 0; expand("") }
+    else if (userExpanded && swipe >= 120) { swipe = 0; collapse() }
   }
 
   // ------------------------------------------------------------------
@@ -1202,6 +1305,7 @@ Item {
       body: String(payload.body || ""),
       icon: String(payload.icon || ""),
       color: toneFor(payload.color),
+      tab: String(payload.tab || ""),
       duration: Number(payload.duration) || 4000
     })
   }
@@ -1224,7 +1328,10 @@ Item {
     var media = { playing: true, title: "Midnight City", artist: "M83", art: "file://" + art, length: 243 }
     if (kind === "off") {
       demo = null; hud = null; collapse(); recordingProbe.running = true; cameraProbe.running = true
-      clocks.cancelTimer(); clocks.resetStopwatch(); activitySource.end("demo", ""); calendarSource.refresh()
+      if (demoTimer) clocks.cancelTimer()
+      if (demoStopwatch) clocks.resetStopwatch()
+      demoTimer = false; demoStopwatch = false
+      activitySource.end("demo", ""); calendarSource.refresh()
     } else if (kind === "media") {
       demo = { media: media }; mediaPosition = 71
     } else if (kind === "paused") {
@@ -1243,9 +1350,9 @@ Item {
       demo = { media: null, recording: false, mic: false }; expand()
     } else if (kind === "volume" || kind.indexOf("volume:") === 0) {
       var vol = kind.indexOf(":") > 0 ? Math.max(0, Math.min(100, parseInt(kind.split(":")[1], 10) || 0)) / 100 : 0.62
-      showHud({ layout: "progress", icon: Model.volumeIcon(vol, false), value: vol, valueText: Math.round(vol * 100) + "%", color: fg, duration: 1600 })
+      showHud({ key: "volume", layout: "progress", icon: Model.volumeIcon(vol, false), value: vol, valueText: Math.round(vol * 100) + "%", color: fg, duration: 1600 })
     } else if (kind === "brightness") {
-      showHud({ layout: "progress", icon: Model.brightnessIcon(0.8), value: 0.8, valueText: "80%", color: fg, duration: 2500 })
+      showHud({ key: "brightness", layout: "progress", icon: Model.brightnessIcon(0.8), value: 0.8, valueText: "80%", color: fg, duration: 2500 })
     } else if (kind === "charging") {
       showHud({ layout: "label", label: "Charging", icon: Model.batteryIcon(0.8, true), valueText: "80%", color: greenColor, duration: 3000 })
     } else if (kind === "lowbattery") {
@@ -1270,9 +1377,11 @@ Item {
       }
       openInbox()
     } else if (kind === "timer") {
-      clocks.startTimer(272, "Tea")
+      if (clocks.rawTimerActive && !demoTimer) return
+      clocks.startTimer(272, "Tea"); demoTimer = true
     } else if (kind === "stopwatch") {
-      clocks.resetStopwatch(); clocks.toggleStopwatch()
+      if (clocks.stopwatchActive && !demoStopwatch) return
+      clocks.resetStopwatch(); clocks.toggleStopwatch(); demoStopwatch = true
     } else if (kind === "activity") {
       activitySource.update("demo", { title: "Building omarchy-dynamic-island", subtitle: "Compiling views · 14 of 22", icon: "󰏗", progress: 0.64, color: "green", ttl: 60 })
     } else if (kind === "calendar") {
@@ -1307,15 +1416,16 @@ Item {
   IpcHandler {
     target: "dynamic-island"
 
+    // Open on a tab: home | calendar | focus | ports | shelf | inbox
+    // (older names: media, timer, pomodoro, stopwatch).
     function view(name: string): string {
-      root.openFocus = name
-      if (name === "calendar") root.calendarOpen = true
-      else root.calendarOpen = false
-      if (!root.userExpanded) root.expand()
+      var n = String(name || "")
+      var alias = { media: "home", timer: "focus", pomodoro: "focus", stopwatch: "focus" }
+      root.expand(alias[n] || n)
       return "ok"
     }
 
-    function expand(): string { root.expand(); return "ok" }
+    function expand(): string { root.expand(""); return "ok" }
     // on | off | toggle: keep a strip free for the island, or let windows
     // fill the top of the screen under it.
     function reserveSpace(mode: string): string {
@@ -1361,13 +1471,16 @@ Item {
     function activities(): string { return JSON.stringify(activitySource.list()) }
     function refreshCalendar(): string { calendarSource.refresh(); return "ok" }
     function calendar(): string { root.openCalendar(); return "ok" }
-    function pomodoro(): string { root.clocks.startPomodoro(); root.openFocus = "timer"; root.expand(); return "ok" }
+    function pomodoro(): string { root.clocks.startPomodoro(); root.expand("focus"); return "ok" }
     function addCalendar(link: string): string { root.addCalendar(link); return "ok" }
     function removeCalendar(link: string): string { root.removeCalendar(link); return "ok" }
     function addCalendarFromClipboard(): string { root.addCalendarFromClipboard(); return "ok" }
     function state(): string {
       return JSON.stringify({
         view: root.view,
+        mode: root.mode,
+        hovered: root.hovered,
+        tab: root.tab,
         primary: root.primary,
         secondary: root.secondary,
         expanded: root.userExpanded,
@@ -1433,575 +1546,319 @@ Item {
       targetScreen: root.targetScreen
     }
     anchors { top: true; left: true; right: true }
-    // Tall enough for the biggest view (a full inbox or output list); only
-    // the island itself takes input, the rest of the strip is click-through.
-    implicitHeight: root.s(360) + root.topMargin
+    // Tall enough for the open notch and its shadow; only the notch itself
+    // takes input, the rest of the strip is click-through.
+    implicitHeight: root.openHeight + root.s(40)
     color: "transparent"
 
     WlrLayershell.namespace: "dynamic-island"
-    WlrLayershell.layer: root.setting("layer", "top") === "overlay" ? WlrLayer.Overlay : WlrLayer.Top
-    // Keyboard only while the calendar's link field is up (typing and
-    // Ctrl+V go straight in; Esc hands it back). Otherwise the island never
-    // takes focus from the app you're in.
-    WlrLayershell.keyboardFocus: root.calendarTyping ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    // The notch ignores the bar's exclusive zone so it sits at y = 0, inside
-    // the bar, flush with the screen edge. Never bind exclusiveZone here:
-    // Quickshell flips exclusionMode back to Normal whenever it is set, and
-    // Hyprland then stacks the window under the bar. Reserving space is the
-    // job of the separate `reserver` window below.
-    exclusionMode: root.notch ? ExclusionMode.Ignore : ExclusionMode.Normal
+    WlrLayershell.layer: root.setting("layer", "overlay") === "top" ? WlrLayer.Top : WlrLayer.Overlay
+    // The notch never takes the keyboard from the app you are in.
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    // Sit at y = 0, inside the bar. Reserving space is the separate
+    // `reserver` window's job (binding exclusiveZone here would flip the
+    // exclusion mode back and stack the notch under the bar).
+    exclusionMode: ExclusionMode.Ignore
 
-    // Esc always hands the keyboard back, wherever focus is inside.
-    Shortcut {
-      sequence: "Escape"
-      enabled: root.calendarTyping
-      onActivated: root.calendarAdding = false
-    }
-
-    mask: Region {
-      item: island
-      Region { item: bubble; intersection: Intersection.Combine }
-      Region { item: leftSatellites; intersection: Intersection.Combine }
-      Region { item: rightSatellites; intersection: Intersection.Combine }
-    }
+    mask: Region { item: hitbox }
 
     Item {
       id: stage
       anchors.fill: parent
 
-      // The spring: each dimension chases the current view's target with a
-      // little overshoot, which is most of what makes it feel like iOS.
-      // Qt's damping is velocity bled off per 16ms tick, so a higher value
-      // is slower (overdamped creep), not snappier. 9.5 / 0.54 reaches 90%
-      // in ~115ms, overshoots ~1% and settles by ~240ms (measured with
-      // QtQuick's own SpringAnimation; 3.5 / 0.82 took ~1.3s to settle).
-      property real w: root.s(root.viewSize.w)
-      property real h: root.s(root.viewSize.h)
-      property real r: root.s(root.viewSize.r)
+      // The window only takes input inside the notch (its mask), so hovering
+      // the stage is hovering the notch.
+      HoverHandler { id: islandHover }
 
-      Behavior on w { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
-      Behavior on h { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
-      Behavior on r { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
+      // Boring Notch's springs, tuned snappy: opening overshoots a touch,
+      // closing settles without one and a little faster. Everything else
+      // (wings, HUDs) moves on the opening curve.
+      readonly property int moveMs: Style.duration(root.collapsing ? 260 : 340)
+      readonly property int moveEasing: root.collapsing ? Easing.OutCubic : Easing.OutBack
 
-      property real earSize: root.isIdleState ? root.s(4) : root.s(18)
-      Behavior on earSize { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+      property real w: root.target.w
+      property real h: root.target.h
+      property real ear: root.target.ear
+      property real corner: root.target.corner
 
-      // Notch style: the body and its two concave "ears" (the fillets that
-      // blend it into the screen edge) are one continuous outline, so there
-      // is no seam where separate pieces would meet. Every coordinate is on
-      // the device pixel grid, so the edges stay crisp at 1.25x/1.5x.
-      Shape {
-        id: notchShape
-        visible: root.notch && island.width > stage.earSize * 2
+      Behavior on w { NumberAnimation { duration: stage.moveMs; easing.type: stage.moveEasing; easing.overshoot: 0.6 } }
+      Behavior on h { NumberAnimation { duration: stage.moveMs; easing.type: stage.moveEasing; easing.overshoot: 0.6 } }
+      Behavior on ear { NumberAnimation { duration: stage.moveMs; easing.type: Easing.OutCubic } }
+      Behavior on corner { NumberAnimation { duration: stage.moveMs; easing.type: Easing.OutCubic } }
+
+      // Body (between the ears) and the whole outline, on the pixel grid.
+      readonly property real bodyW: root.snap(Math.max(0, w))
+      readonly property real bodyH: root.snap(Math.max(1, h))
+      readonly property real edgeL: root.snap((width - bodyW) / 2 - ear)
+      readonly property real edgeR: edgeL + bodyW + 2 * ear
+
+      // At rest the body is painted like the bar; with anything going on,
+      // or under the pointer, it turns to frosted glass (or solid, with
+      // "glass": false).
+      readonly property real fill: root.mode === "idle" && !root.hovered ? root.restingAlpha : root.activeAlpha
+      property real fillAnimated: fill
+      Behavior on fillAnimated { NumberAnimation { duration: Style.duration(140); easing.type: Easing.OutCubic } }
+      readonly property color bodyColor: Qt.rgba(root.surface.r, root.surface.g, root.surface.b, fillAnimated)
+      // How far the glass is up: 0 at rest, 1 once it has filled in. The
+      // sheen and the rim follow it, so the resting notch stays just the bar.
+      readonly property real glassTarget: root.glassOn && fill > root.restingAlpha ? 1 : 0
+      property real glassAmount: glassTarget
+      Behavior on glassAmount { NumberAnimation { duration: Style.duration(140); easing.type: Easing.OutCubic } }
+
+      // ---- the outline: Boring Notch's NotchShape. Quadratic "ears" turn
+      // out into the screen edge at the top; quadratic corners round the
+      // bottom. One path, so there is no seam anywhere.
+      Item {
+        id: bodyLayer
         anchors.fill: parent
-        preferredRendererType: Shape.CurveRenderer
-
-        readonly property real e: stage.earSize
-        readonly property real x0: island.x
-        readonly property real x1: island.x + island.width
-        readonly property real h: island.height
-        readonly property real r: Math.max(0, Math.min(root.isIdleState ? stage.r : root.s(26), h - e, island.width / 2))
-
-        ShapePath {
-          strokeColor: "transparent"
-          fillGradient: LinearGradient {
-            x1: 0; y1: 0; x2: 0; y2: notchShape.h
-            GradientStop { position: 0; color: root.surfaceTop }
-            GradientStop { position: 1; color: root.surfaceBottom }
-          }
-          startX: notchShape.x0 - notchShape.e; startY: 0
-          PathArc { x: notchShape.x0; y: notchShape.e; radiusX: notchShape.e; radiusY: notchShape.e; direction: PathArc.Clockwise }
-          PathLine { x: notchShape.x0; y: notchShape.h - notchShape.r }
-          PathArc { x: notchShape.x0 + notchShape.r; y: notchShape.h; radiusX: notchShape.r; radiusY: notchShape.r; direction: PathArc.Counterclockwise }
-          PathLine { x: notchShape.x1 - notchShape.r; y: notchShape.h }
-          PathArc { x: notchShape.x1; y: notchShape.h - notchShape.r; radiusX: notchShape.r; radiusY: notchShape.r; direction: PathArc.Counterclockwise }
-          PathLine { x: notchShape.x1; y: notchShape.e }
-          PathArc { x: notchShape.x1 + notchShape.e; y: 0; radiusX: notchShape.e; radiusY: notchShape.e; direction: PathArc.Clockwise }
-          PathLine { x: notchShape.x0 - notchShape.e; y: 0 }
-        }
-
-        // Rim: the sides and lip catch a hairline of light; the top edge is
-        // the screen edge, so it stays open.
-        ShapePath {
-          fillColor: "transparent"
-          strokeColor: root.rim
-          strokeWidth: 1
-          startX: notchShape.x0 - notchShape.e; startY: 0
-          PathArc { x: notchShape.x0; y: notchShape.e; radiusX: notchShape.e; radiusY: notchShape.e; direction: PathArc.Clockwise }
-          PathLine { x: notchShape.x0; y: notchShape.h - notchShape.r }
-          PathArc { x: notchShape.x0 + notchShape.r; y: notchShape.h; radiusX: notchShape.r; radiusY: notchShape.r; direction: PathArc.Counterclockwise }
-          PathLine { x: notchShape.x1 - notchShape.r; y: notchShape.h }
-          PathArc { x: notchShape.x1; y: notchShape.h - notchShape.r; radiusX: notchShape.r; radiusY: notchShape.r; direction: PathArc.Counterclockwise }
-          PathLine { x: notchShape.x1; y: notchShape.e }
-          PathArc { x: notchShape.x1 + notchShape.e; y: 0; radiusX: notchShape.e; radiusY: notchShape.e; direction: PathArc.Clockwise }
-        }
-      }
-
-      // Floating style: the same body as a capsule, rim all the way round.
-      Shape {
-        id: capsule
-        visible: !root.notch && island.width > 4
-        anchors.fill: parent
-        preferredRendererType: Shape.CurveRenderer
-
-        ShapePath {
-          strokeColor: root.rim
-          strokeWidth: 1
-          fillGradient: LinearGradient {
-            x1: 0; y1: island.y; x2: 0; y2: island.y + island.height
-            GradientStop { position: 0; color: root.surfaceTop }
-            GradientStop { position: 1; color: root.surfaceBottom }
-          }
-          PathRectangle {
-            x: island.x + 0.5; y: island.y + 0.5
-            width: Math.max(0, island.width - 1); height: Math.max(0, island.height - 1)
-            radius: Math.max(0, island.radius - 0.5)
-          }
-        }
-      }
-
-      // A soft light behind the island in the music's color while something
-      // plays. Only this glow goes through a blur layer; the island itself
-      // is never layered, so its content stays sharp.
-      Rectangle {
-        id: glow
-        readonly property bool lit: root.glowEnabled && root.mediaPlaying
-          && (root.view === "media" || root.view === "media-expanded" || root.view === "hud-track")
-        x: island.x - root.s(4)
-        y: island.y + root.s(2)
-        width: island.width + root.s(8)
-        height: island.height + root.s(2)
-        radius: island.radius
-        color: root.mediaTint
-        opacity: lit ? breath : 0
-        visible: opacity > 0.01
-        property real breath: 0.5
-
-        Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
-
-        SequentialAnimation on breath {
-          running: glow.lit
-          loops: Animation.Infinite
-          NumberAnimation { to: 0.28; duration: 1600; easing.type: Easing.InOutSine }
-          NumberAnimation { to: 0.55; duration: 1600; easing.type: Easing.InOutSine }
-        }
-
-        layer.enabled: visible
+        // Shadow only while open, like Boring Notch.
+        layer.enabled: root.mode === "open" || root.mode === "notification"
         layer.effect: MultiEffect {
-          blurEnabled: true
-          blur: 1.0
-          blurMax: 40
+          shadowEnabled: true
+          // Kept faint enough to stay under Hyprland's blur threshold, so the
+          // shadow never frosts what is around the notch.
+          shadowColor: Qt.rgba(0, 0, 0, root.glassOn ? 0.4 : 0.55)
+          shadowBlur: 0.6
+          shadowVerticalOffset: 2
           autoPaddingEnabled: true
         }
-      }
 
-      // A plain Rectangle with scissor clipping on purpose: clipping through
-      // an offscreen layer blurs everything inside at fractional scaling.
-      Rectangle {
-        id: island
-
-        // Snapped to device pixels: at fractional scaling an edge between
-        // pixels is drawn as a soft, lighter line.
-        x: root.snap((stage.width - width) / 2)
-        y: root.snap(root.topMargin)
-        width: root.snap(Math.max(0, stage.w))
-        height: root.snap(Math.max(0, stage.h))
-        radius: root.notch ? 0 : Math.max(0, Math.min(stage.r, height / 2, width / 2))
-        // The shapes above paint the body; this only clips and hosts content.
-        color: "transparent"
-        clip: true
-        opacity: width < 4 ? 0 : 1
-        scale: islandPress.pressed ? 0.965 : 1
-        transformOrigin: Item.Top
-
-        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
-        Behavior on opacity { NumberAnimation { duration: 110 } }
-
-        HoverHandler { id: islandHover }
-
-        Item {
-          id: content
-          // ViewSlots read this to put themselves on the pixel grid.
-          readonly property real dpr: root.dpr
-          width: island.width
-          height: island.height
-
-          MouseArea {
-            id: islandPress
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-            cursorShape: Qt.PointingHandCursor
-            onClicked: function(mouse) { root.islandClicked(mouse.button) }
-            onWheel: function(wheel) { root.adjustVolume(wheel.angleDelta.y) }
-          }
-
-          // Status light along the lip, kept clear of the rounded corners.
-          EdgeLight {
-            readonly property real inset: Math.min(island.radius, island.height / 2) * 0.85 + root.s(6)
-            x: root.snap(inset)
-            width: Math.max(0, island.width - inset * 2)
-            height: Math.max(2, root.snap(root.s(2)))
-            y: root.snap(island.height - height - root.s(2))
-            tone: root.edgeState.tone
-            level: root.edgeState.level
-            progress: root.edgeState.progress === undefined ? -1 : root.edgeState.progress
-            pulse: root.edgeState.pulse === true
-            pulsePeriod: root.edgeState.period || 1400
-            sweepKey: root.edgeSweep
-          }
-
-          // The resting face follows the island's own size (it never waits
-          // for the shape to settle, since the shape resizes to fit it).
-          ViewSlot {
-            active: root.view === "idle" || root.view === "idle-hover"
-            width: island.width; height: island.height
-            IdleFace { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("media")
-            width: root.s(root.slotSize("media").w); height: root.s(root.slotSize("media").h)
-            MediaCompact { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("recording")
-            width: root.s(root.slotSize("recording").w); height: root.s(root.slotSize("recording").h)
-            RecordingCompact { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("mic")
-            width: root.s(root.slotSize("mic").w); height: root.s(root.slotSize("mic").h)
-            MicCompact { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("hud-progress")
-            width: root.s(root.slotSize("hud-progress").w); height: root.s(root.slotSize("hud-progress").h)
-            HudProgress { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("hud-label")
-            width: root.s(root.slotSize("hud-label").w); height: root.s(root.slotSize("hud-label").h)
-            HudLabel { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("hud-track")
-            width: root.s(root.slotSize("hud-track").w); height: root.s(root.slotSize("hud-track").h)
-            TrackHud { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("hud-toast")
-            width: root.s(root.slotSize("hud-toast").w); height: root.s(root.slotSize("hud-toast").h)
-            ToastHud { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("media-expanded")
-            width: root.s(root.slotSize("media-expanded").w); height: root.s(root.slotSize("media-expanded").h)
-            MediaExpanded { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("recording-expanded")
-            width: root.s(root.slotSize("recording-expanded").w); height: root.s(root.slotSize("recording-expanded").h)
-            RecordingExpanded { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("recording-media-expanded")
-            width: root.s(root.slotSize("recording-media-expanded").w); height: root.s(root.slotSize("recording-media-expanded").h)
-            RecordingExpanded { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("notification")
-            width: root.s(root.slotSize("notification").w); height: root.s(root.slotSize("notification").h)
-            NotificationView { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("notification-actions")
-            width: root.s(root.slotSize("notification-actions").w); height: root.s(root.slotSize("notification-actions").h)
-            NotificationView { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("inbox")
-            width: root.s(root.slotSize("inbox").w); height: root.s(root.slotSize("inbox").h)
-            InboxCompact { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("inbox-expanded")
-            width: root.s(root.slotSize("inbox-expanded").w); height: root.s(root.slotSize("inbox-expanded").h)
-            InboxView { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("timer")
-            width: root.s(root.slotSize("timer").w); height: root.s(root.slotSize("timer").h)
-            ClockCompact { anchors.fill: parent; island: root; mode: "timer" }
-          }
-
-          ViewSlot {
-            active: root.showing("stopwatch")
-            width: root.s(root.slotSize("stopwatch").w); height: root.s(root.slotSize("stopwatch").h)
-            ClockCompact { anchors.fill: parent; island: root; mode: "stopwatch" }
-          }
-
-          ViewSlot {
-            active: root.showing("activity")
-            width: root.s(root.slotSize("activity").w); height: root.s(root.slotSize("activity").h)
-            ActivityCompact { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("calendar")
-            width: root.s(root.slotSize("calendar").w); height: root.s(root.slotSize("calendar").h)
-            CalendarCompact { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("clock-expanded")
-            width: root.s(root.slotSize("clock-expanded").w); height: root.s(root.slotSize("clock-expanded").h)
-            ClockExpanded { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("activity-expanded")
-            width: root.s(root.slotSize("activity-expanded").w); height: root.s(root.slotSize("activity-expanded").h)
-            ActivityExpanded { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("outputs-expanded")
-            width: root.s(root.slotSize("outputs-expanded").w); height: root.s(root.slotSize("outputs-expanded").h)
-            OutputsView { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("calendar-expanded")
-            width: root.s(root.slotSize("calendar-expanded").w); height: root.s(root.slotSize("calendar-expanded").h)
-            CalendarView { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("idle-expanded")
-            width: root.s(root.slotSize("idle-expanded").w); height: root.s(root.slotSize("idle-expanded").h)
-            IdleExpanded { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("shelf-expanded")
-            width: root.s(root.slotSize("shelf-expanded").w); height: root.s(root.slotSize("shelf-expanded").h)
-            ShelfView { anchors.fill: parent; island: root }
-          }
-
-          ViewSlot {
-            active: root.showing("ports-expanded")
-            width: root.s(root.slotSize("ports-expanded").w); height: root.s(root.slotSize("ports-expanded").h)
-            PortsView { anchors.fill: parent; island: root }
-          }
-        }
-      }
-
-      // Split island: the second live activity in its own circle.
-      Rectangle {
-        id: bubble
-
-        readonly property real d: root.s(32)
-        readonly property real restX: island.x + island.width + root.s(8)
-
-        width: d
-        height: d
-        radius: d / 2
-        y: root.notch ? root.s(4) : root.topMargin
-        x: root.showBubble ? restX : island.x + island.width - d
-        gradient: Gradient {
-          GradientStop { position: 0; color: root.surfaceTop }
-          GradientStop { position: 1; color: root.surfaceBottom }
-        }
-        border.width: 1
-        border.color: root.rim
-        opacity: root.showBubble ? 1 : 0
-        scale: root.showBubble ? 1 : 0.4
-        visible: opacity > 0.01
-        clip: true
-
-        Behavior on x { SpringAnimation { spring: 9.5; damping: 0.45; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: 130 } }
-        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
-
-        BubbleContent {
+        Shape {
+          id: notchShape
           anchors.fill: parent
-          island: root
-          kind: root.secondary
+          preferredRendererType: Shape.CurveRenderer
+          visible: stage.fillAnimated > 0.002
+
+          readonly property real t: Math.min(stage.ear, stage.bodyH / 2)
+          readonly property real b: Math.max(0, Math.min(stage.corner, stage.bodyH - t, stage.bodyW / 2))
+          readonly property real l: stage.edgeL
+          readonly property real r: stage.edgeR
+          readonly property real hh: stage.bodyH
+
+          // The tint: the bar's color, see-through when glass is on (Hyprland
+          // blurs what is behind it).
+          NotchOutline {
+            strokeColor: "transparent"
+            strokeWidth: 0
+            fillColor: stage.bodyColor
+            l: notchShape.l; r: notchShape.r; t: notchShape.t; b: notchShape.b; hh: notchShape.hh
+          }
+
+          // Sheen: light falling on the glass from the screen edge, gone a
+          // little way down. Only while the glass is up, never at rest.
+          NotchOutline {
+            strokeColor: "transparent"
+            strokeWidth: 0
+            l: notchShape.l; r: notchShape.r; t: notchShape.t; b: notchShape.b; hh: notchShape.hh
+            fillGradient: LinearGradient {
+              x1: 0; y1: 0
+              x2: 0; y2: Math.max(1, notchShape.hh)
+              GradientStop { position: 0; color: Qt.rgba(1, 1, 1, 0.07 * stage.glassAmount) }
+              GradientStop { position: Math.min(0.9, root.barHeight * 1.6 / Math.max(1, notchShape.hh)); color: Qt.rgba(1, 1, 1, 0.02 * stage.glassAmount) }
+              GradientStop { position: 1; color: Qt.rgba(1, 1, 1, 0.035 * stage.glassAmount) }
+            }
+          }
+
+          // Rim: a hairline catching the light along the sides and bottom,
+          // the edge Raycast and macOS glass draw. Open at the top, where
+          // the notch meets the screen edge.
+          NotchOutline {
+            closed: false
+            fillColor: "transparent"
+            strokeColor: Qt.rgba(1, 1, 1, 0.16 * stage.glassAmount)
+            strokeWidth: 1 / root.dpr
+            capStyle: ShapePath.FlatCap
+            joinStyle: ShapePath.RoundJoin
+            l: notchShape.l; r: notchShape.r; t: notchShape.t; b: notchShape.b; hh: notchShape.hh
+          }
         }
+      }
+
+      // What takes input: the whole outline, ears included.
+      Item {
+        id: hitbox
+        // Opening, it takes the full open size at once, so a quick move
+        // down into the panel never outruns the growing shape.
+        readonly property bool opening: root.mode === "open" || root.mode === "notification"
+        readonly property real fullW: root.target.w + 2 * root.target.ear
+        x: opening ? Math.min(stage.edgeL, root.snap((stage.width - fullW) / 2)) : stage.edgeL
+        y: 0
+        width: opening ? Math.max(stage.edgeR - stage.edgeL, fullW) : Math.max(1, stage.edgeR - stage.edgeL)
+        height: opening ? Math.max(stage.bodyH, root.target.h) : stage.bodyH
 
         MouseArea {
           anchors.fill: parent
-          cursorShape: Qt.PointingHandCursor
-          onClicked: {
-            if (root.secondary === "inbox") { root.openInbox(); return }
-            root.openFocus = root.secondary
-            root.expand()
+          acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+          cursorShape: root.userExpanded ? Qt.ArrowCursor : Qt.PointingHandCursor
+          onClicked: function(mouse) {
+            var centre = width / 2
+            var onClock = mouse.y <= root.barHeight
+              && Math.abs(mouse.x - centre) <= root.clockWidth / 2
+            root.islandClicked(mouse.button, onClock)
+          }
+          onWheel: function(wheel) { root.handleWheel(wheel.inverted ? -wheel.angleDelta.y : wheel.angleDelta.y) }
+        }
+
+        // Dragging a file onto the notch opens the Shelf to drop it on.
+        DropArea {
+          anchors.fill: parent
+          onEntered: function(drag) {
+            drag.accepted = false
+            if (!root.userExpanded || root.tab !== "shelf") root.expand("shelf")
           }
         }
       }
 
-      // ================================================================
-      // Floating Left Satellite Affordances: Calendar, Pomodoro, Media
-      // ================================================================
+      // Content: clipped to the body. A plain clipping Item (no layer), so
+      // text stays sharp at fractional scaling.
       Item {
-        id: leftSatellites
-        width: root.userExpanded ? root.s(44) : 0
-        height: leftCol.implicitHeight
+        id: island
+        x: stage.edgeL + notchShape.t
+        y: 0
+        width: stage.bodyW
+        height: stage.bodyH
+        clip: true
 
-        x: root.snap(island.x - root.s(44) - root.s(16))
-        // Centered on the body, but never above the bar: the notch now sits
-        // at y = 0, so the old 12px floor put the top button over the bar.
-        y: root.snap(island.y + Math.max(root.satelliteTop, (island.height - height) / 2))
+        // Where the top row's three zones are: wings or header either side
+        // of the clock, which never moves.
+        readonly property real clockX: root.snap((width - root.clockWidth) / 2)
+        readonly property real sideW: Math.max(0, (width - root.clockWidth) / 2)
 
-        opacity: root.userExpanded ? 1 : 0
-        scale: root.userExpanded ? 1 : 0.8
-        visible: opacity > 0.01
-        enabled: root.userExpanded
-
-        // Tracks the island body on the same spring
-        Behavior on y { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
-
-        HoverHandler {
-          onHoveredChanged: root.leftSatHovered = hovered
+        NotchClock {
+          x: island.clockX
+          y: 0
+          width: root.clockWidth
+          height: root.barHeight
+          island: root
         }
 
-        Column {
-          id: leftCol
-          anchors.centerIn: parent
-          spacing: root.s(12)
+        // ---- closed: live activity wings
+        Item {
+          id: liveWings
+          readonly property bool on: root.mode === "live"
+          anchors.fill: parent
+          opacity: on ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: Style.duration(liveWings.on ? 160 : 80) } }
 
-          SatelliteButton {
-            glyph: "󰃭"
-            tooltipText: "Calendar"
-            isActive: root.view === "calendar-expanded"
-            side: "left"
+          WingLive {
+            x: 0
+            width: island.sideW
+            height: root.barHeight
             island: root
-            onClicked: {
-              root.openFocus = "calendar"
-              root.calendarOpen = true
-              root.outputsOpen = false
-              root.inboxOpen = false
-              if (!root.userExpanded) root.expand()
-            }
+            kind: root.live
+            leading: true
           }
 
-          SatelliteButton {
-            glyph: ""
-            tooltipText: "Pomodoro"
-            isActive: root.view === "clock-expanded"
-            side: "left"
+          WingLive {
+            x: island.clockX + root.clockWidth
+            width: island.sideW
+            height: root.barHeight
             island: root
-            onClicked: {
-              root.openFocus = "pomodoro"
-              root.calendarOpen = false
-              root.outputsOpen = false
-              root.inboxOpen = false
-              if (!root.userExpanded) root.expand()
-            }
-          }
-
-          SatelliteButton {
-            glyph: "󰎆"
-            tooltipText: "Now Playing"
-            isActive: root.view === "media-expanded"
-            side: "left"
-            island: root
-            onClicked: {
-              root.openFocus = "media"
-              root.calendarOpen = false
-              root.outputsOpen = false
-              root.inboxOpen = false
-              if (!root.userExpanded) root.expand()
-            }
+            kind: root.live
+            leading: false
           }
         }
-      }
 
-      // ================================================================
-      // Floating Right Satellite Affordances: Shelf, Ports, Style / Mode
-      // ================================================================
-      Item {
-        id: rightSatellites
-        width: root.userExpanded ? root.s(44) : 0
-        height: rightCol.implicitHeight
+        // ---- closed: sneak peek / expanding strip
+        Item {
+          id: hudWings
+          readonly property bool on: root.mode === "sneak" || root.mode === "expand"
+          anchors.fill: parent
+          opacity: on ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: Style.duration(hudWings.on ? 160 : 80) } }
 
-        x: root.snap(island.x + island.width + root.s(16))
-        // Centered on the body, but never above the bar: the notch now sits
-        // at y = 0, so the old 12px floor put the top button over the bar.
-        y: root.snap(island.y + Math.max(root.satelliteTop, (island.height - height) / 2))
+          WingHud {
+            x: 0
+            width: island.sideW
+            height: root.barHeight
+            island: root
+            leading: true
+          }
 
-        opacity: root.userExpanded ? 1 : 0
-        scale: root.userExpanded ? 1 : 0.8
-        visible: opacity > 0.01
-        enabled: root.userExpanded
-
-        // Tracks the island body on the same spring
-        Behavior on y { SpringAnimation { spring: 9.5; damping: 0.54; mass: 1.0; epsilon: 0.25 } }
-        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
-
-        HoverHandler {
-          onHoveredChanged: root.rightSatHovered = hovered
+          WingHud {
+            x: island.clockX + root.clockWidth
+            width: island.sideW
+            height: root.barHeight
+            island: root
+            leading: false
+          }
         }
 
-        Column {
-          id: rightCol
-          anchors.centerIn: parent
-          spacing: root.s(12)
+        // ---- open: tabs | clock | status
+        Item {
+          id: header
+          readonly property bool on: root.mode === "open"
+          anchors.fill: parent
+          opacity: on ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: Style.duration(header.on ? 180 : 70) } }
 
-          SatelliteButton {
-            glyph: "󰉋"
-            tooltipText: "File Shelf"
-            isActive: root.view === "shelf-expanded"
-            side: "right"
+          NotchTabs {
+            x: root.s(12)
+            width: island.sideW - root.s(12)
+            height: root.barHeight
             island: root
-            onClicked: {
-              root.openFocus = "shelf"
-              root.calendarOpen = false
-              root.outputsOpen = false
-              root.inboxOpen = false
-              if (!root.userExpanded) root.expand()
-            }
+            anchors.top: parent.top
+            anchors.topMargin: Math.round((root.barHeight - height) / 2)
           }
 
-          SatelliteButton {
-            glyph: "󰈀"
-            tooltipText: "Port Watcher"
-            isActive: root.view === "ports-expanded"
-            side: "right"
+          NotchStatus {
+            x: island.clockX + root.clockWidth
+            width: island.sideW - root.s(12)
+            height: root.barHeight
             island: root
-            onClicked: {
-              root.openFocus = "ports"
-              root.calendarOpen = false
-              root.outputsOpen = false
-              root.inboxOpen = false
-              if (!root.userExpanded) root.expand()
-            }
+          }
+        }
+
+        // ---- open: the tab
+        Item {
+          id: body
+          x: root.s(12)
+          y: root.barHeight + root.s(4)
+          width: root.openWidth - 2 * root.earOpen - root.s(24)
+          height: root.openHeight - y - root.s(14)
+
+          TabSlot {
+            active: root.mode === "open" && root.tab === "home"
+            content: Component { HomeTab { island: root } }
           }
 
-          SatelliteButton {
-            glyph: root.glassMode ? "󰒓" : "󰍹"
-            tooltipText: root.glassMode ? "Raycast Glass" : "Sharp Mode"
-            isActive: false
-            island: root
-            onClicked: root.toggleGlassMode()
+          TabSlot {
+            active: root.mode === "open" && root.tab === "calendar"
+            content: Component { CalendarTab { island: root } }
           }
+
+          TabSlot {
+            active: root.mode === "open" && root.tab === "focus"
+            content: Component { FocusTab { island: root } }
+          }
+
+          TabSlot {
+            active: root.mode === "open" && root.tab === "ports"
+            content: Component { PortsView { island: root } }
+          }
+
+          TabSlot {
+            active: root.mode === "open" && root.tab === "shelf"
+            content: Component { ShelfView { island: root } }
+          }
+
+          TabSlot {
+            active: root.mode === "open" && root.tab === "inbox"
+            content: Component { InboxView { island: root } }
+          }
+        }
+
+        // ---- a notification dropping out of the notch
+        TabSlot {
+          active: root.mode === "notification"
+          x: 0
+          y: root.barHeight
+          width: island.width
+          height: root.notificationHeight - root.barHeight
+          content: Component { NotificationView { island: root } }
         }
       }
     }
@@ -2025,6 +1882,6 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Normal
-    exclusiveZone: root.s(32) + root.topMargin
+    exclusiveZone: root.barHeight
   }
 }

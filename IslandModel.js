@@ -590,6 +590,17 @@ function osdGlyph(name) {
   return String(name || "")
 }
 
+// What an OSD icon name is about, for the sneak peek's label.
+function osdName(icon) {
+  var k = String(icon || "").toLowerCase().replace(/[-_](off|muted|on|high|low|medium|disabled)$/, "")
+  if (k === "") return ""
+  if (k.indexOf("mic") === 0) return "Mic"
+  if (k.indexOf("keyboard") === 0 || k.indexOf("kbd") === 0) return "Keyboard"
+  if (k.indexOf("brightness") === 0 || k.indexOf("display") === 0) return "Brightness"
+  var word = k.split(/[-_\s]/)[0]
+  return word.charAt(0).toUpperCase() + word.slice(1)
+}
+
 function osdHud(payload, show) {
   var p = payload || {}
   var key = String(p.icon || "").toLowerCase()
@@ -610,6 +621,7 @@ function osdHud(payload, show) {
       key: volume ? "volume" : (key === "brightness" ? "brightness" : "osd"),
       layout: "progress",
       icon: volume ? volumeIcon(level, off) : (key === "brightness" ? brightnessIcon(level) : osdGlyph(p.icon)),
+      label: osdName(p.icon),
       value: level,
       valueText: Math.round(level * 100) + "%",
       dim: off,
@@ -632,25 +644,21 @@ function osdHud(payload, show) {
 // Every setting and its default, in the README's order. The island writes
 // the missing ones into its shell.json entry so they can be edited in place.
 var defaultSettings = {
-  style: "notch",
   background: "theme",
-  idle: "pill",
-  idleFace: "ticker",
+  glass: true,
+  glassOpacity: 0.62,
   scale: 1,
-  topMargin: 6,
-  reserveSpace: true,
+  reserveSpace: false,
   keybind: "SUPER + ALT + I",
   monitor: "primary",
-  layer: "top",
-  expandOnHover: false,
+  layer: "overlay",
+  openOnHover: true,
+  hoverDelay: 150,
+  fitBarSpacer: true,
   clockFormat: "dddd HH:mm",
+  clockFormatAlt: "d MMMM 'W'ww yyyy",
   mediaLingerSeconds: 30,
-  notchWidth: 0,
-  notchHeight: 0,
-  notchRadius: 0,
   visualizerColor: "accent",
-  textFont: "iA Writer Quattro V",
-  glow: false,
   calendars: [],
   calendarLeadMinutes: 15,
   holidays: "auto",
@@ -702,10 +710,113 @@ function isoWeek(year, month, day) {
   return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 }
 
+// Omarchy's bar clock presets, in its order: each locale-shaped time is
+// followed by its 12-hour twin, so one right click flips 24h to AM/PM.
+var CLOCK_FORMATS = [
+  "dddd HH:mm",
+  "dddd h:mm AP",
+  "dddd HH:mm:ss",
+  "dddd h:mm:ss AP",
+  "HH:mm",
+  "h:mm AP",
+  "ddd d MMM HH:mm",
+  "ddd d MMM h:mm AP",
+  "d MMMM 'W'ww yyyy",
+  "yyyy-MM-dd HH:mm"
+]
+
+// The presets, then the alternate and the current format when they are
+// something else. A fixed order, so cycling (which saves the result) walks
+// the ring instead of bouncing between two entries.
+function clockFormatRing(configured, configuredAlt) {
+  var ring = []
+  var candidates = CLOCK_FORMATS.concat([configuredAlt, configured])
+  for (var i = 0; i < candidates.length; i++) {
+    var format = String(candidates[i] === undefined || candidates[i] === null ? "" : candidates[i])
+    if (format === "" || ring.indexOf(format) !== -1) continue
+    ring.push(format)
+  }
+  return ring.length > 0 ? ring : ["HH:mm"]
+}
+
+// Whether a format prints seconds (quoted literals like 'Sat' don't count).
+function clockNeedsSeconds(format) {
+  return /s/.test(String(format || "").replace(/'[^']*'?/g, ""))
+}
+
 function formatClockDate(date, fmt) {
   if (!date) return ""
   var format = String(fmt || "dddd HH:mm")
   var weekStr = pad2(isoWeek(date.getFullYear(), date.getMonth(), date.getDate()))
   var prepared = format.replace(/ww/g, weekStr)
   return Qt.formatDateTime(date, prepared)
+}
+
+
+// ---------------------------------------------------------------------------
+// Notch (Boring Notch model)
+//
+// The notch is one shape that only ever grows sideways (wings around the
+// clock) or downwards (open). It moves through these modes:
+//   idle          the clock alone, blended into the bar
+//   live          a live activity in two wings either side of the clock
+//   sneak         a volume / brightness level in the wings, 1.5s
+//   expand        a wide strip at bar height (charging, a timer finishing,
+//                 a track change), a few seconds, then back
+//   notification  a banner dropping out of the notch
+//   open          the panel: tabs, clock and status on top, a tab below
+// ---------------------------------------------------------------------------
+
+// Live activities, highest priority first. Only the first one shows.
+var liveOrder = ["recording", "timer", "media", "mic", "activity", "calendar", "stopwatch"]
+
+function liveActivities(flags) {
+  var out = []
+  for (var i = 0; i < liveOrder.length; i++)
+    if (flags[liveOrder[i]]) out.push(liveOrder[i])
+  return out
+}
+
+// Width of one wing, in unscaled px, for each live activity. Media's wing is
+// sized from the bar height (a square cover) by the caller.
+var wingWidths = {
+  recording: 56, timer: 58, mic: 30, activity: 58, calendar: 58, stopwatch: 66, inbox: 36,
+  sneak: 122, expand: 196
+}
+
+function notchMode(st) {
+  if (st.open) return "open"
+  if (st.notification) return "notification"
+  if (st.hud) return st.hud.layout === "progress" ? "sneak" : "expand"
+  if (st.live) return "live"
+  return "idle"
+}
+
+// Tabs of the open notch, in order. `when` names a condition the caller
+// passes in `available` (missing means always shown).
+var tabs = [
+  { id: "home", glyph: "\u{F02DC}", label: "Home" },
+  { id: "calendar", glyph: "\u{F00ED}", label: "Calendar" },
+  { id: "focus", glyph: "\u{F13AB}", label: "Focus" },
+  { id: "ports", glyph: "\u{F0200}", label: "Ports" },
+  { id: "shelf", glyph: "\u{F024B}", label: "Shelf" },
+  { id: "inbox", glyph: "\u{F009A}", label: "Inbox", when: "inbox" }
+]
+
+function visibleTabs(available) {
+  return tabs.filter(function(t) { return !t.when || (available && available[t.when]) })
+}
+
+// The tab a live activity opens to when it is clicked.
+function tabForActivity(name) {
+  if (name === "timer" || name === "stopwatch") return "focus"
+  if (name === "calendar") return "calendar"
+  if (name === "inbox") return "inbox"
+  return "home"
+}
+
+// "#rrggbb" for a QML color (or anything with r, g, b in 0..1).
+function hexColor(c) {
+  function ch(v) { var h = Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 255).toString(16); return h.length < 2 ? "0" + h : h }
+  return c ? "#" + ch(c.r) + ch(c.g) + ch(c.b) : "#000000"
 }

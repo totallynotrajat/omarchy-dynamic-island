@@ -120,11 +120,40 @@ Item {
 
   // Every event (all-day ones too) in one month, grouped by day, for the
   // calendar view. Recomputed when the feeds are re-read.
+  // Events by day for a month (with a week either side). Parsing the feeds
+  // is the slow part (hundreds of ms with holidays), so each month is parsed
+  // once per version of the data and kept; opening the notch never waits on
+  // it. The cache is a plain object mutated in place, so filling it from a
+  // binding notifies nothing.
+  readonly property var monthCache: ({ version: -1, months: {} })
+
   function month(year, monthIndex) {
-    version
-    var from = new Date(year, monthIndex, 1).getTime() - 7 * 86400000
-    var to = new Date(year, monthIndex + 1, 1).getTime() + 14 * 86400000
-    return Model.eventsByDay(Model.parseIcs(raw, from, to, true))
+    var v = version
+    if (monthCache.version !== v) {
+      monthCache.version = v
+      monthCache.months = {}
+    }
+    var d = new Date(year, monthIndex, 1)
+    var key = d.getFullYear() + "-" + d.getMonth()
+    var hit = monthCache.months[key]
+    if (hit) return hit
+    var from = d.getTime() - 7 * 86400000
+    var to = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() + 14 * 86400000
+    var map = Model.eventsByDay(Model.parseIcs(raw, from, to, true))
+    monthCache.months[key] = map
+    return map
+  }
+
+  // Parse the months the notch shows (last, this and next) in the
+  // background whenever the data changes, so the first open is instant too.
+  onVersionChanged: warmTimer.restart()
+  Timer {
+    id: warmTimer
+    interval: 400
+    onTriggered: {
+      var t = new Date()
+      for (var i = -1; i <= 1; i++) calendar.month(t.getFullYear(), t.getMonth() + i)
+    }
   }
 
   // The next event that has not ended yet.

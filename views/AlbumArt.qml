@@ -1,13 +1,20 @@
 import QtQuick
 import QtQuick.Shapes
+import Qt5Compat.GraphicalEffects
 import qs.Commons
 
 // Rounded cover art with a tinted glyph standing in until (or unless) the
 // player provides an image.
 //
-// The image is painted straight into a rounded Shape (ShapePath.fillItem)
-// rather than clipped through an offscreen layer: at fractional scaling a
-// layer lands between device pixels and smears, which made covers soft.
+// The tile is always square and always full: the image is scaled to cover
+// it keeping its aspect ratio and centred, so a 16:9 video thumbnail loses
+// a little off its left and right edges, never its middle.
+//
+// Qt's Image does the centred crop (PreserveAspectCrop), and a rounded mask
+// cuts the corners. The layer is rendered at the screen's own pixel density
+// so it stays sharp at fractional scaling. (Filling a Shape straight from
+// the decoded texture ignored the crop and showed a corner of wide
+// thumbnails.)
 Item {
   id: art
 
@@ -25,15 +32,24 @@ Item {
   // real pixels; the scene graph filters it down smoothly.
   readonly property int decodeSize: Math.max(64, Math.ceil(Math.max(width, height) * 2))
 
+  readonly property real dpr: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
+  readonly property int textureW: Math.max(1, Math.ceil(width * dpr))
+  readonly property int textureH: Math.max(1, Math.ceil(height * dpr))
+
   Image {
     id: image
     width: art.width
     height: art.height
-    visible: art.themeIcon
+    visible: status === Image.Ready
     source: art.source
-    // With both sourceSize dimensions set, PreserveAspectCrop decodes the
-    // image already cropped to a square, so the texture is exactly the tile.
+    // A cover fills the square, centred, its overhang cut off; a theme icon
+    // fits inside it.
     fillMode: art.themeIcon ? Image.PreserveAspectFit : Image.PreserveAspectCrop
+    clip: true
+    layer.enabled: !art.themeIcon
+    layer.smooth: true
+    layer.textureSize: Qt.size(art.textureW, art.textureH)
+    layer.effect: OpacityMask { maskSource: roundMask }
     sourceSize.width: art.decodeSize
     sourceSize.height: art.decodeSize
     asynchronous: true
@@ -45,7 +61,8 @@ Item {
   Shape {
     anchors.fill: parent
     preferredRendererType: Shape.CurveRenderer
-    visible: !(art.themeIcon && image.status === Image.Ready)
+    // The tinted tile only stands in while there is no image.
+    visible: image.status !== Image.Ready
 
     ShapePath {
       strokeWidth: 0
@@ -55,26 +72,17 @@ Item {
     }
   }
 
-  // Built only once the image has loaded (and rebuilt for each new one): a
-  // fill created while a network cover was still downloading keeps the
-  // empty texture and paints white.
-  Loader {
-    anchors.fill: parent
-    active: !art.themeIcon && image.status === Image.Ready
-
-    sourceComponent: Shape {
-      preferredRendererType: Shape.CurveRenderer
-
-      ShapePath {
-        strokeWidth: 0
-        strokeColor: "transparent"
-        fillItem: image
-        // The fill texture is laid out at the image item's size; scale it
-        // to the tile in case the two ever differ.
-        fillTransform: PlanarTransform.fromScale(art.width / Math.max(1, image.width), art.height / Math.max(1, image.height))
-        PathRectangle { x: 0; y: 0; width: art.width; height: art.height; radius: art.radius }
-      }
-    }
+  // The tile's rounded shape, used as the cover's mask.
+  Rectangle {
+    id: roundMask
+    width: art.width
+    height: art.height
+    radius: art.radius
+    antialiasing: true
+    visible: false
+    layer.enabled: true
+    layer.smooth: true
+    layer.textureSize: Qt.size(art.textureW, art.textureH)
   }
 
   Text {
